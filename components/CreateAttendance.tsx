@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import Camera from "./camera";
@@ -26,6 +27,11 @@ import {
 } from "@/components/ui/alert"
 import { MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+const ManualLocationPicker = dynamic(
+  () => import("./manual-location-picker"),
+  { ssr: false }
+);
 
 interface FormData {
   ReferenceID: string;
@@ -64,6 +70,8 @@ export default function CreateAttendance({
   setFormAction,
 }: CreateAttendanceProps) {
   const [locationAddress, setLocationAddress] = useState("Fetching location...");
+  const [manualLat, setManualLat] = useState<number | null>(null);
+  const [manualLng, setManualLng] = useState<number | null>(null);
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -273,10 +281,20 @@ export default function CreateAttendance({
 
               <div className="grid gap-2">
                 <Alert className="text-xs">
-                  <MapPin className="w-4 h-4 text-blue-500 mt-[3px]" />
-                  <AlertTitle className="font-bold">My Location</AlertTitle>
-                  <AlertDescription className="text-xs">{locationAddress}</AlertDescription>
+                  <MapPin className="w-4 h-4 text-blue-500" />
+                  <AlertTitle>My Location</AlertTitle>
+                  <AlertDescription>{locationAddress}</AlertDescription>
                 </Alert>
+
+                <ManualLocationPicker
+                  latitude={manualLat ?? latitude}
+                  longitude={manualLng ?? longitude}
+                  onChange={(lat, lng, address) => {
+                    setManualLat(lat);
+                    setManualLng(lng);
+                    if (address) setLocationAddress(address);
+                  }}
+                />
               </div>
 
               {/* SUBMIT */}
