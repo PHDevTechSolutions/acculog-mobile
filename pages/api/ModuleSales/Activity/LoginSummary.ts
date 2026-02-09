@@ -1,4 +1,3 @@
-// pages/api/ModuleSales/Activity/LoginSummary.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import { connectToDatabase } from "@/lib/MongoDB";
 

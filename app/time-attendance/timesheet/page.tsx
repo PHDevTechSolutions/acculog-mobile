@@ -231,7 +231,7 @@ export default function Page() {
         const shiftStart = new Date(firstLogin);
         shiftStart.setHours(8, 0, 0, 0);
         const shiftEnd = new Date(firstLogin);
-        shiftEnd.setHours(17, 0, 0, 0);
+        shiftEnd.setHours(18, 31, 0, 0); // 6:31 PM
 
         const now = new Date();
         let endTime: Date;

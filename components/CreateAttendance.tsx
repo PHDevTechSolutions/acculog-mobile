@@ -70,10 +70,12 @@ export default function CreateAttendance({
   setFormAction,
 }: CreateAttendanceProps) {
   const [locationAddress, setLocationAddress] = useState("Fetching location...");
+
   const [manualLat, setManualLat] = useState<number | null>(null);
   const [manualLng, setManualLng] = useState<number | null>(null);
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
+  
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
