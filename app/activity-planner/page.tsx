@@ -638,7 +638,8 @@ export default function Page() {
                   userDetails={{
                     ReferenceID: userDetails?.ReferenceID ?? "",
                     Email: userDetails?.Email ?? "",
-                    TSM: userDetails?.TSM ?? ""
+                    TSM: userDetails?.TSM ?? "",
+                    Role: userDetails?.Role ?? ""
                   }}
                   fetchAccountAction={fetchAccountAction}
                   setFormAction={setFormData}

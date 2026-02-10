@@ -44,6 +44,7 @@ interface UserDetails {
   ReferenceID: string;
   TSM: string;
   Email: string;
+  Role: string;
 }
 
 interface CreateAttendanceProps {
@@ -88,7 +89,7 @@ export default function CreateAttendance({
 
   // Local UI state to toggle Select visibility only
   const [clientType, setClientType] = useState<"New Client" | "Existing Client" | "">("");
-
+  const [siteVisitAccountsCount, setSiteVisitAccountsCount] = useState(0);
   /* ================= EFFECTS ================= */
 
   useEffect(() => {
@@ -223,7 +224,16 @@ export default function CreateAttendance({
   useEffect(() => {
     if (!open || clientType !== "Existing Client") {
       setSiteVisitAccounts([]);
+      setSiteVisitAccountsCount(0);
       setAccountsError(null);
+      setLoadingAccounts(false);
+      return;
+    }
+
+    if (!userDetails.ReferenceID) {
+      setSiteVisitAccounts([]);
+      setSiteVisitAccountsCount(0);
+      setAccountsError("Missing ReferenceID");
       setLoadingAccounts(false);
       return;
     }
@@ -231,23 +241,36 @@ export default function CreateAttendance({
     setLoadingAccounts(true);
     setAccountsError(null);
 
-    fetch(
-      `/api/fetch-account?referenceid=${encodeURIComponent(
-        userDetails.ReferenceID
-      )}`
-    )
-      .then((res) => res.json())
-      .then((json) => {
-        if (json.success) {
-          setSiteVisitAccounts(json.data || []);
-        } else {
-          setAccountsError(json.error || "No accounts found");
-        }
-      })
-      .catch(() => setAccountsError("Error fetching accounts"))
-      .finally(() => setLoadingAccounts(false));
-  }, [open, clientType, userDetails.ReferenceID]);
+    const fetchAccounts = (url: string) => {
+      fetch(url)
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.success) {
+            setSiteVisitAccounts(json.data || []);
+            setSiteVisitAccountsCount(json.count || (json.data?.length ?? 0));
+            setAccountsError(null);
+          } else {
+            setSiteVisitAccounts([]);
+            setSiteVisitAccountsCount(0);
+            setAccountsError(json.error || "No accounts found");
+          }
+        })
+        .catch(() => {
+          setSiteVisitAccounts([]);
+          setSiteVisitAccountsCount(0);
+          setAccountsError("Error fetching accounts");
+        })
+        .finally(() => setLoadingAccounts(false));
+    };
 
+    if (userDetails.Role === "Territory Sales Manager") {
+      fetchAccounts(`/api/fetch-tsm?referenceid=${encodeURIComponent(userDetails.ReferenceID)}`);
+    } else if (userDetails.Role === "Manager") {
+      fetchAccounts(`/api/fetch-manager?referenceid=${encodeURIComponent(userDetails.ReferenceID)}`);
+    } else {
+      fetchAccounts(`/api/fetch-account?referenceid=${encodeURIComponent(userDetails.ReferenceID)}`);
+    }
+  }, [open, clientType, userDetails.Role, userDetails.ReferenceID]);
 
   /* ================= UI ================= */
 
@@ -309,7 +332,10 @@ export default function CreateAttendance({
               {/* SELECT — only visible if "Existing Client" selected on UI */}
               {clientType === "Existing Client" && (
                 <div className="grid gap-2">
-                  <Label>Site Visit Account</Label>
+                  <Label>
+                    Site Visit Account{" "}
+                    <span className="text-xs text-green-500">({siteVisitAccountsCount} total)</span>
+                  </Label>
                   <Select
                     options={siteVisitAccounts.map((a) => ({
                       value: a.company_name,
