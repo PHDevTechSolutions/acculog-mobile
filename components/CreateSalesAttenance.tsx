@@ -218,6 +218,37 @@ export default function CreateAttendance({
     }
   };
 
+  /* ================= FETCH ACCOUNTS WHEN EXISTING CLIENT SELECTED ================= */
+
+  useEffect(() => {
+    if (!open || clientType !== "Existing Client") {
+      setSiteVisitAccounts([]);
+      setAccountsError(null);
+      setLoadingAccounts(false);
+      return;
+    }
+
+    setLoadingAccounts(true);
+    setAccountsError(null);
+
+    fetch(
+      `/api/fetch-account?referenceid=${encodeURIComponent(
+        userDetails.ReferenceID
+      )}`
+    )
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.success) {
+          setSiteVisitAccounts(json.data || []);
+        } else {
+          setAccountsError(json.error || "No accounts found");
+        }
+      })
+      .catch(() => setAccountsError("Error fetching accounts"))
+      .finally(() => setLoadingAccounts(false));
+  }, [open, clientType, userDetails.ReferenceID]);
+
+
   /* ================= UI ================= */
 
   return (
@@ -287,9 +318,9 @@ export default function CreateAttendance({
                     value={
                       formData.SiteVisitAccount
                         ? {
-                            value: formData.SiteVisitAccount,
-                            label: formData.SiteVisitAccount,
-                          }
+                          value: formData.SiteVisitAccount,
+                          label: formData.SiteVisitAccount,
+                        }
                         : null
                     }
                     onChange={(s) =>
@@ -329,9 +360,8 @@ export default function CreateAttendance({
 
               {/* SUBMIT BUTTON */}
               <Button
-                className={`text-lg p-6 ${
-                  lastStatus === "Login" ? "bg-red-600" : "bg-green-600"
-                }`}
+                className={`text-lg p-6 ${lastStatus === "Login" ? "bg-red-600" : "bg-green-600"
+                  }`}
                 onClick={handleCreate}
                 disabled={loading}
               >
@@ -339,8 +369,8 @@ export default function CreateAttendance({
                 {loading
                   ? "Saving..."
                   : lastStatus === "Login"
-                  ? " Logout"
-                  : " Login"}
+                    ? " Logout"
+                    : " Login"}
               </Button>
             </>
           )}
