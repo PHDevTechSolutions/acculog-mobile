@@ -1,3 +1,5 @@
+"use client";
+
 import dynamic from "next/dynamic";
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -11,17 +13,12 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-
 import {
   Alert,
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert";
-
-import {
-  MapPin,
-  CheckCircleIcon,
-} from "lucide-react";
+import { MapPin, CheckCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Select from "react-select";
 
@@ -36,7 +33,7 @@ interface FormData {
   ReferenceID: string;
   TSM: string;
   Email: string;
-  Type: string;
+  Type: string; // will always be "Client Visit"
   Status: string;
   PhotoURL: string;
   Remarks: string;
@@ -78,8 +75,6 @@ export default function CreateAttendance({
   const [manualLng, setManualLng] = useState<number | null>(null);
 
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [siteCapturedImage, setSiteCapturedImage] = useState<string | null>(null);
-
   const [loading, setLoading] = useState(false);
 
   const [siteVisitAccounts, setSiteVisitAccounts] = useState<
@@ -89,49 +84,19 @@ export default function CreateAttendance({
   const [accountsError, setAccountsError] = useState<string | null>(null);
 
   const [lastStatus, setLastStatus] = useState<string | null>(null);
-  const [lastTime, setLastTime] = useState<string | null>(null);
   const [loginCountToday, setLoginCountToday] = useState<number>(0);
 
-  /* ================= SET DEFAULT TYPE TO 'Client Visit' ================= */
+  // Local UI state to toggle Select visibility only
+  const [clientType, setClientType] = useState<"New Client" | "Existing Client" | "">("");
 
-  useEffect(() => {
-    if (open && formData.Type !== "Client Visit") {
-      onChangeAction("Type", "Client Visit");
-    }
-  }, [open, formData.Type, onChangeAction]);
-
-  /* ================= FETCH SITE VISIT ACCOUNTS ================= */
+  /* ================= EFFECTS ================= */
 
   useEffect(() => {
     if (!open) return;
 
-    setLoadingAccounts(true);
-    setAccountsError(null);
-
-    fetch(
-      `/api/fetch-account?referenceid=${encodeURIComponent(
-        userDetails.ReferenceID
-      )}`,
-      { cache: "no-store" }
-    )
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch accounts");
-        return res.json();
-      })
-      .then((json) => {
-        if (json.success) {
-          setSiteVisitAccounts(json.data || []);
-        } else {
-          setAccountsError(json.error || "No accounts found");
-        }
-      })
-      .catch((err) => {
-        setAccountsError(err.message || "Error fetching accounts");
-      })
-      .finally(() => {
-        setLoadingAccounts(false);
-      });
-  }, [open, userDetails.ReferenceID]);
+    // Always reset clientType selection on open
+    setClientType("");
+  }, [open]);
 
   /* ================= GEOLOCATION ================= */
 
@@ -152,26 +117,16 @@ export default function CreateAttendance({
           .then((res) => res.json())
           .then((data) =>
             setLocationAddress(data.display_name || "Location detected")
-          )
-          .catch(() =>
-            setLocationAddress("Location detected (no address)")
           );
       },
-      () => {
-        setLocationAddress("Location not allowed by user");
-        setLatitude(null);
-        setLongitude(null);
-      },
+      () => setLocationAddress("Location not allowed"),
       { enableHighAccuracy: true }
     );
 
-    return () => {
-      setCapturedImage(null);
-      setSiteCapturedImage(null);
-    };
+    return () => setCapturedImage(null);
   }, [open]);
 
-  /* ================= FETCH LOGIN SUMMARY ================= */
+  /* ================= LOGIN SUMMARY ================= */
 
   useEffect(() => {
     if (!open) return;
@@ -183,116 +138,82 @@ export default function CreateAttendance({
       if (!res.ok) return;
 
       const data = await res.json();
-
       setLastStatus(data.lastStatus);
       setLoginCountToday(data.loginCount);
 
-      if (data.lastTime) {
-        setLastTime(
-          new Date(data.lastTime).toLocaleTimeString("en-PH", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-        );
-      }
-
-      // Determine next status based on lastStatus:
-      const nextStatus = data.lastStatus === "Login" ? "Logout" : "Login";
-
-      // Set form status accordingly:
-      onChangeAction("Status", nextStatus);
+      onChangeAction(
+        "Status",
+        data.lastStatus === "Login" ? "Logout" : "Login"
+      );
     };
 
     fetchSummary();
-
-    const interval = setInterval(fetchSummary, 3000);
-    return () => clearInterval(interval);
+    const i = setInterval(fetchSummary, 3000);
+    return () => clearInterval(i);
   }, [open, userDetails.ReferenceID, onChangeAction]);
 
-  /* ================= UPLOAD IMAGE ================= */
+  /* ================= UPLOAD ================= */
 
   const uploadToCloudinary = async (base64: string) => {
-    const imgData = new FormData();
-    imgData.append("file", base64);
-    imgData.append("upload_preset", "Xchire");
+    const fd = new FormData();
+    fd.append("file", base64);
+    fd.append("upload_preset", "Xchire");
 
     const res = await fetch(
       "https://api.cloudinary.com/v1_1/dhczsyzcz/image/upload",
-      { method: "POST", body: imgData }
+      { method: "POST", body: fd }
     );
-
-    const data = await res.json();
-    return data.secure_url;
+    return (await res.json()).secure_url;
   };
 
   /* ================= SUBMIT ================= */
 
   const handleCreate = async () => {
-    if (!capturedImage) {
-      return toast.error("Please capture a photo first.");
-    }
+    if (!capturedImage) return toast.error("Capture photo first.");
 
-    if (!locationAddress || locationAddress === "Fetching location...") {
-      return toast.error("Location not ready yet.");
-    }
-
-    if (!formData.SiteVisitAccount) {
-      return toast.error("Please select a client account.");
-    }
+    // Note: formData.Type is always "Client Visit", so no need to check SiteVisitAccount here
 
     setLoading(true);
 
     try {
       const photoURL = await uploadToCloudinary(capturedImage);
-      const sitePhotoURL =
-        siteCapturedImage && formData.Status !== "Logout"
-          ? await uploadToCloudinary(siteCapturedImage)
-          : null;
 
       const payload = {
         ...formData,
-        Type: "Client Visit",
+        Type: "Client Visit", // force type here
         PhotoURL: photoURL,
-        SitePhotoURL: sitePhotoURL,
         Location: locationAddress,
         Latitude: manualLat ?? latitude,
         Longitude: manualLng ?? longitude,
       };
 
-      const response = await fetch("/api/ModuleSales/Activity/AddLog", {
+      const res = await fetch("/api/ModuleSales/Activity/AddLog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        const err = await response.json();
-        return toast.error(err.error || "Error saving attendance.");
-      }
+      if (!res.ok) throw new Error();
 
       toast.success("Attendance created!");
-
       fetchAccountAction();
 
-      // After successful submit, clear form and reset states:
       setFormAction({
         ReferenceID: userDetails.ReferenceID,
         Email: userDetails.Email,
         TSM: userDetails.TSM,
         Type: "Client Visit",
-        Status: "", // will be reset on next fetchSummary
+        Status: "",
         PhotoURL: "",
         Remarks: "",
         SiteVisitAccount: "",
       });
 
       setCapturedImage(null);
-      setSiteCapturedImage(null);
-      setLoading(false);
       onOpenChangeAction(false);
-    } catch (err) {
-      console.error(err);
+    } catch {
       toast.error("Error saving attendance.");
+    } finally {
       setLoading(false);
     }
   };
@@ -306,93 +227,121 @@ export default function CreateAttendance({
           <DialogTitle>Create Attendance</DialogTitle>
         </DialogHeader>
 
-        {/* Display login count and next status */}
-        <div className="p-4 bg-gray-50 rounded border border-gray-200 text-sm text-gray-700">
+        <div className="p-4 bg-gray-50 rounded border text-sm">
           <div>
             <strong>Login Count Today:</strong> {loginCountToday}
           </div>
           <div>
             <strong>Next Status:</strong>{" "}
-            <span className={lastStatus === "Login" ? "text-red-600" : "text-green-600"}>
+            <span
+              className={
+                lastStatus === "Login"
+                  ? "text-red-600"
+                  : "text-green-600"
+              }
+            >
               {lastStatus === "Login" ? "Logout" : "Login"}
             </span>
           </div>
         </div>
 
         <div className="flex flex-col gap-4 mt-4">
-          {open && (
+          <Camera onCaptureAction={setCapturedImage} />
+
+          {capturedImage && (
             <>
-              <Camera onCaptureAction={setCapturedImage} />
+              {/* RADIO — UI only, does NOT affect formData.Type */}
+              <div className="grid gap-2">
+                <Label>Client Type</Label>
+                <div className="flex gap-6">
+                  {["New Client", "Existing Client"].map((t) => (
+                    <label key={t} className="flex gap-2 items-center">
+                      <input
+                        type="radio"
+                        name="clientType"
+                        checked={clientType === t}
+                        onChange={() => {
+                          setClientType(t as "New Client" | "Existing Client");
 
-              {capturedImage && (
-                <>
-                  <div className="grid gap-2">
-                    <Label>Site Visit Account</Label>
-                    {loadingAccounts ? (
-                      <p className="text-xs text-gray-500">Loading accounts...</p>
-                    ) : accountsError ? (
-                      <p className="text-xs text-red-500">{accountsError}</p>
-                    ) : (
-                      <Select
-                        options={siteVisitAccounts.map((acc) => ({
-                          value: acc.company_name,
-                          label: acc.company_name,
-                        }))}
-                        value={
-                          formData.SiteVisitAccount
-                            ? {
-                              value: formData.SiteVisitAccount,
-                              label: formData.SiteVisitAccount,
-                            }
-                            : null
-                        }
-                        onChange={(selected) =>
-                          onChangeAction("SiteVisitAccount", selected?.value || "")
-                        }
-                        isClearable
-                        placeholder="Select Account"
+                          // Clear SiteVisitAccount if New Client selected
+                          if (t === "New Client") {
+                            onChangeAction("SiteVisitAccount", "");
+                          }
+                        }}
                       />
-                    )}
-                  </div>
+                      {t}
+                    </label>
+                  ))}
+                </div>
+              </div>
 
-                  <div className="grid gap-2">
-                    <Label>Remarks</Label>
-                    <Textarea
-                      value={formData.Remarks}
-                      onChange={(e) => onChangeAction("Remarks", e.target.value)}
-                    />
-                  </div>
-
-                  <Alert className="text-xs">
-                    <MapPin className="w-4 h-4 text-blue-500" />
-                    <AlertTitle>My Location</AlertTitle>
-                    <AlertDescription>{locationAddress}</AlertDescription>
-                  </Alert>
-
-                  <ManualLocationPicker
-                    latitude={manualLat ?? latitude}
-                    longitude={manualLng ?? longitude}
-                    onChange={(lat, lng, address) => {
-                      setManualLat(lat);
-                      setManualLng(lng);
-                      if (address) setLocationAddress(address);
-                    }}
+              {/* SELECT — only visible if "Existing Client" selected on UI */}
+              {clientType === "Existing Client" && (
+                <div className="grid gap-2">
+                  <Label>Site Visit Account</Label>
+                  <Select
+                    options={siteVisitAccounts.map((a) => ({
+                      value: a.company_name,
+                      label: a.company_name,
+                    }))}
+                    value={
+                      formData.SiteVisitAccount
+                        ? {
+                            value: formData.SiteVisitAccount,
+                            label: formData.SiteVisitAccount,
+                          }
+                        : null
+                    }
+                    onChange={(s) =>
+                      onChangeAction("SiteVisitAccount", s?.value || "")
+                    }
                   />
-                </>
+                </div>
               )}
 
-              {capturedImage && (
-                <Button
-                  className={`text-lg p-6 ${lastStatus === "Login" ? "bg-red-600" : "bg-green-600"
-                    }`}
-                  onClick={handleCreate}
-                  disabled={loading}
-                >
-                  <CheckCircleIcon />
-                  {loading ? "Saving..." : ` ${lastStatus === "Login" ? "Logout" : "Login"}`}
-                </Button>
-              )}
+              {/* REMARKS */}
+              <div className="grid gap-2">
+                <Label>Remarks</Label>
+                <Textarea
+                  value={formData.Remarks}
+                  onChange={(e) =>
+                    onChangeAction("Remarks", e.target.value)
+                  }
+                />
+              </div>
 
+              {/* LOCATION */}
+              <Alert className="text-xs">
+                <MapPin className="w-4 h-4" />
+                <AlertTitle>My Location</AlertTitle>
+                <AlertDescription>{locationAddress}</AlertDescription>
+              </Alert>
+
+              <ManualLocationPicker
+                latitude={manualLat ?? latitude}
+                longitude={manualLng ?? longitude}
+                onChange={(lat, lng, addr) => {
+                  setManualLat(lat);
+                  setManualLng(lng);
+                  if (addr) setLocationAddress(addr);
+                }}
+              />
+
+              {/* SUBMIT BUTTON */}
+              <Button
+                className={`text-lg p-6 ${
+                  lastStatus === "Login" ? "bg-red-600" : "bg-green-600"
+                }`}
+                onClick={handleCreate}
+                disabled={loading}
+              >
+                <CheckCircleIcon />
+                {loading
+                  ? "Saving..."
+                  : lastStatus === "Login"
+                  ? " Logout"
+                  : " Login"}
+              </Button>
             </>
           )}
         </div>
