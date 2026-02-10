@@ -363,7 +363,11 @@ export default function CreateAttendance({
                 className={`text-lg p-6 ${lastStatus === "Login" ? "bg-red-600" : "bg-green-600"
                   }`}
                 onClick={handleCreate}
-                disabled={loading}
+                disabled={
+                  loading ||
+                  !capturedImage ||
+                  (clientType === "Existing Client" && !formData.SiteVisitAccount)
+                }
               >
                 <CheckCircleIcon />
                 {loading
