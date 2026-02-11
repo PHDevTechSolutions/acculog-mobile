@@ -18,7 +18,7 @@ import CreateSalesAttendance from "@/components/CreateSalesAttenance";
 import { MapPin, X } from "lucide-react";
 import { motion, useInView } from "framer-motion";
 import { CalendarCheckIcon, MapPinCheck, ArrowLeftIcon, ArrowRightIcon } from "lucide-react";
-
+import { toast } from "sonner";
 import ProtectedPageWrapper from "@/components/protected-page-wrapper";
 // ---------------- Interfaces ----------------
 type TimelineItem = {
@@ -241,24 +241,6 @@ export default function Page() {
   const [isPanelOpen, setIsPanelOpen] = useState(true);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-
-    const load = async () => {
-      setLoading(true);
-      await fetchAccountAction();
-      setLoading(false);
-    };
-
-    load(); // initial
-
-    interval = setInterval(() => {
-      fetchAccountAction(); // refresh logs every 5 seconds
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
     if (queryUserId && queryUserId !== userId) {
       setUserId(queryUserId);
     }
@@ -274,21 +256,58 @@ export default function Page() {
   };
 
   // ---------------- Fetch Functions ----------------
+  // Move this outside of useEffect
   const fetchAccountAction = async () => {
+    if (!userDetails) return;
+    setLoading(true);
+
     try {
-      const res = await fetch("/api/ModuleSales/Activity/FetchLog");
-      if (!res.ok) throw new Error("Failed to fetch logs");
-      const data = await res.json();
-      setPosts(data.data);
+      let allLogs: ActivityLog[] = [];
+      let page = 1;
+      const limit = 100;
+      let totalPages = 1;
+
+      do {
+        const params = new URLSearchParams();
+        params.append("page", page.toString());
+        params.append("limit", limit.toString());
+        params.append("role", userDetails.Role);
+
+        if (userDetails.Role !== "Super Admin" && userDetails.Role !== "Human Resources") {
+          params.append("referenceID", userDetails.ReferenceID);
+        }
+
+        if (dateCreatedFilterRange?.from) {
+          params.append("startDate", dateCreatedFilterRange.from.toISOString());
+          params.append(
+            "endDate",
+            (dateCreatedFilterRange.to ?? dateCreatedFilterRange.from).toISOString()
+          );
+        }
+
+        const res = await fetch(`/api/ModuleSales/Activity/FetchLog?${params.toString()}`);
+        if (!res.ok) throw new Error("Failed to fetch logs");
+
+        const data = await res.json();
+        allLogs = allLogs.concat(data.data ?? []);
+        totalPages = data.pagination?.totalPages ?? 1;
+        page++;
+      } while (page <= totalPages);
+
+      setPosts(allLogs);
     } catch (err) {
-      console.error("Error fetching logs:", err);
+      console.error("Error fetching activity logs:", err);
+      toast.error("Error fetching activity logs.");
+      setPosts([]);
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Then call it inside useEffect
   useEffect(() => {
-    setLoading(true);
-    fetchAccountAction().finally(() => setLoading(false));
-  }, []);
+    fetchAccountAction();
+  }, [userDetails, dateCreatedFilterRange]);
 
   useEffect(() => {
     if (!queryUserId) {
@@ -364,22 +383,30 @@ export default function Page() {
   }, [posts]);
 
   // ---------------- Filtering ----------------
+  // ---------------- Filtering ----------------
   const filteredPosts = useMemo(() => {
     let visiblePosts = posts;
 
+    // Helper to compare only year, month, day (ignore time)
+    const isWithinRange = (date: string | Date, from: Date, to: Date) => {
+      const d = new Date(date);
+      const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()); // midnight local
+      const start = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+      const end = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+      return day >= start && day <= end;
+    };
+
+    // Filter by date range
     if (dateCreatedFilterRange?.from) {
       const fromDate = new Date(dateCreatedFilterRange.from);
-      fromDate.setHours(0, 0, 0, 0);
-
       const toDate = new Date(dateCreatedFilterRange.to ?? dateCreatedFilterRange.from);
-      toDate.setHours(23, 59, 59, 999);
 
-      visiblePosts = visiblePosts.filter((post) => {
-        const postDate = new Date(post.date_created);
-        return postDate >= fromDate && postDate <= toDate;
-      });
+      visiblePosts = visiblePosts.filter((post) =>
+        isWithinRange(post.date_created, fromDate, toDate)
+      );
     }
 
+    // Filter by search text
     if (searchText.trim()) {
       const lowerSearch = searchText.trim().toLowerCase();
       visiblePosts = visiblePosts.filter((post) => {
@@ -391,6 +418,7 @@ export default function Page() {
       });
     }
 
+    // Sort newest first
     visiblePosts.sort(
       (a, b) => new Date(b.date_created).getTime() - new Date(a.date_created).getTime()
     );
@@ -475,10 +503,10 @@ export default function Page() {
                 </Breadcrumb>
                 <div className="ml-auto flex gap-2">
                   <Button onClick={goToPrevMonth} >
-                   <ArrowLeftIcon /> Prev
+                    <ArrowLeftIcon /> Prev
                   </Button>
                   <Button onClick={goToNextMonth}>
-                   Next <ArrowRightIcon />
+                    Next <ArrowRightIcon />
                   </Button>
                 </div>
               </header>

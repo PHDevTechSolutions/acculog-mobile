@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { UserProvider, useUser } from "@/contexts/UserContext";
 import { FormatProvider } from "@/contexts/FormatContext";
 import { type DateRange } from "react-day-picker";
-
+import { toast } from "sonner";
 import { AppSidebar } from "@/components/app-sidebar";
 import {
   Breadcrumb,
@@ -23,7 +23,7 @@ import {
 import "leaflet/dist/leaflet.css";
 import ProtectedPageWrapper from "@/components/protected-page-wrapper";
 
-// Dynamically import LocationMap with SSR disabled
+// Dynamically import LocationMap (no SSR)
 const LocationMap = dynamic(() => import("@/components/location-map"), {
   ssr: false,
 });
@@ -63,11 +63,9 @@ interface UserDetails {
 function toLocalDateKey(date: Date | string) {
   const d = typeof date === "string" ? new Date(date) : date;
   const year = d.getFullYear();
-  const month = d.getMonth() + 1;
-  const day = d.getDate();
-  return `${year}-${month.toString().padStart(2, "0")}-${day
-    .toString()
-    .padStart(2, "0")}`;
+  const month = (d.getMonth() + 1).toString().padStart(2, "0");
+  const day = d.getDate().toString().padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export default function Page() {
@@ -83,6 +81,17 @@ export default function Page() {
     DateRange | undefined
   >(undefined);
 
+  const [posts, setPosts] = useState<ActivityLog[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [usersMap, setUsersMap] = useState<Record<string, UserInfo>>({});
+  const [pagination, setPagination] = useState<{
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  } | null>(null);
+
+  // Load stored date range from localStorage
   useEffect(() => {
     try {
       const stored = localStorage.getItem("dateCreatedFilterRange");
@@ -92,11 +101,10 @@ export default function Page() {
         if (parsed?.to) parsed.to = new Date(parsed.to);
         setDateCreatedFilterRange(parsed);
       }
-    } catch {
-      // ignore
-    }
+    } catch { }
   }, []);
 
+  // Save date range to localStorage
   useEffect(() => {
     if (dateCreatedFilterRange) {
       localStorage.setItem(
@@ -108,19 +116,22 @@ export default function Page() {
     }
   }, [dateCreatedFilterRange]);
 
+  // Set userId from query param
   useEffect(() => {
     if (queryUserId && queryUserId !== userId) {
       setUserId(queryUserId);
     }
   }, [queryUserId, userId, setUserId]);
 
+  // Fetch user details
   useEffect(() => {
+    if (!queryUserId) {
+      setError("User ID is missing.");
+      return;
+    }
+    setError(null);
+
     const fetchUserData = async () => {
-      if (!queryUserId) {
-        setError("User ID is missing.");
-        return;
-      }
-      setError(null);
       try {
         const res = await fetch(`/api/user?id=${encodeURIComponent(queryUserId)}`);
         if (!res.ok) throw new Error("Failed to fetch user data");
@@ -142,32 +153,69 @@ export default function Page() {
         setError("Failed to load user data.");
       }
     };
+
     fetchUserData();
   }, [queryUserId]);
 
-  const [posts, setPosts] = useState<ActivityLog[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [usersMap, setUsersMap] = useState<Record<string, UserInfo>>({});
-
+  // Fetch activity logs from API
   useEffect(() => {
-    async function fetchActivityLogs() {
+    const fetchAllActivityLogs = async () => {
+      if (!userDetails) return;
       setLoading(true);
+
       try {
-        const res = await fetch("/api/ModuleSales/Activity/FetchLog");
-        if (!res.ok) throw new Error("Failed to fetch logs");
-        const data = await res.json();
-        setPosts(data.data);
-      } catch (error) {
-        console.error(error);
+        let allLogs: ActivityLog[] = [];
+        let page = 1;
+        const limit = 100;
+        let totalPages = 1;
+
+        do {
+          const params = new URLSearchParams();
+          params.append("page", page.toString());
+          params.append("limit", limit.toString());
+          params.append("role", userDetails.Role);
+
+          if (
+            userDetails.Role !== "Super Admin" &&
+            userDetails.Role !== "Human Resources"
+          ) {
+            params.append("referenceID", userDetails.ReferenceID);
+          }
+
+          if (dateCreatedFilterRange?.from) {
+            params.append("startDate", dateCreatedFilterRange.from.toISOString());
+            params.append(
+              "endDate",
+              (dateCreatedFilterRange.to ?? dateCreatedFilterRange.from).toISOString()
+            );
+          }
+
+          const res = await fetch(`/api/ModuleSales/Activity/FetchLog?${params.toString()}`);
+          if (!res.ok) throw new Error("Failed to fetch logs");
+
+          const data = await res.json();
+          allLogs = allLogs.concat(data.data ?? []);
+
+          totalPages = data.pagination?.totalPages ?? 1;
+          page++;
+        } while (page <= totalPages);
+
+        setPosts(allLogs);
+      } catch (err) {
+        console.error("Error fetching activity logs:", err);
+        toast.error("Error fetching activity logs.");
+        setPosts([]);
       } finally {
         setLoading(false);
       }
-    }
-    fetchActivityLogs();
-  }, []);
+    };
 
+    fetchAllActivityLogs();
+  }, [userDetails, dateCreatedFilterRange]);
+
+  // Fetch users info for posts
   useEffect(() => {
-    async function fetchUsersForPosts() {
+    const fetchUsersForPosts = async () => {
       if (posts.length === 0) return;
 
       const uniqueRefs = Array.from(new Set(posts.map((p) => p.ReferenceID)));
@@ -187,42 +235,20 @@ export default function Page() {
         });
 
         setUsersMap(map);
-      } catch (error) {
-        console.error("Error fetching users:", error);
+      } catch (err) {
+        console.error("Error fetching users:", err);
       }
-    }
+    };
+
     fetchUsersForPosts();
   }, [posts]);
 
+  // Filter posts for location only
   const postsWithLocation = useMemo(() => {
-    if (!userDetails) return [];
-
-    const filteredByDateAndLocation = posts.filter((p) => {
-      if (p.Latitude === undefined || p.Longitude === undefined) return false;
-
-      if (!dateCreatedFilterRange?.from) return true;
-
-      const postDateKey = toLocalDateKey(p.date_created);
-      const fromKey = toLocalDateKey(dateCreatedFilterRange.from);
-      const toKey = toLocalDateKey(dateCreatedFilterRange.to ?? dateCreatedFilterRange.from);
-
-      return postDateKey >= fromKey && postDateKey <= toKey;
-    });
-
-    if (
-      userDetails.Role === "Super Admin" ||
-      userDetails.Department === "Human Resources"
-    ) {
-      return filteredByDateAndLocation;
-    }
-
-    return filteredByDateAndLocation.filter(
-      (p) => p.ReferenceID === userDetails.ReferenceID
-    );
-  }, [posts, dateCreatedFilterRange, userDetails]);
+    return posts.filter((p) => p.Latitude !== undefined && p.Longitude !== undefined);
+  }, [posts]);
 
   if (error) return <p className="p-4 text-red-600">{error}</p>;
-
   if (!userDetails) return <p className="p-4">Loading user details...</p>;
 
   return (
@@ -266,10 +292,10 @@ export default function Page() {
                 )}
 
                 <style jsx global>{`
-                .leaflet-pane {
-                  z-index: 0 !important;
-                }
-              `}</style>
+                  .leaflet-pane {
+                    z-index: 0 !important;
+                  }
+                `}</style>
               </main>
             </SidebarInset>
           </SidebarProvider>

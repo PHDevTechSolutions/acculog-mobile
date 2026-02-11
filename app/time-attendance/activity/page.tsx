@@ -127,22 +127,59 @@ export default function Page() {
 
     // Fetch activity logs
     useEffect(() => {
-        const fetchActivityLogs = async () => {
+        const fetchAllActivityLogs = async () => {
+            if (!userDetails) return;
             setLoading(true);
+
             try {
-                const res = await fetch("/api/ModuleSales/Activity/FetchLog");
-                if (!res.ok) throw new Error("Failed to fetch logs");
-                const data = await res.json();
-                setPosts(data.data);
-            } catch (error) {
+                let allLogs: ActivityLog[] = [];
+                let page = 1;
+                const limit = 100;
+                let totalPages = 1;
+
+                do {
+                    const params = new URLSearchParams();
+                    params.append("page", page.toString());
+                    params.append("limit", limit.toString());
+                    params.append("role", userDetails.Role);
+
+                    if (
+                        userDetails.Role !== "Super Admin" &&
+                        userDetails.Role !== "Human Resources"
+                    ) {
+                        params.append("referenceID", userDetails.ReferenceID);
+                    }
+
+                    if (dateCreatedFilterRange?.from) {
+                        params.append("startDate", dateCreatedFilterRange.from.toISOString());
+                        params.append(
+                            "endDate",
+                            (dateCreatedFilterRange.to ?? dateCreatedFilterRange.from).toISOString()
+                        );
+                    }
+
+                    const res = await fetch(`/api/ModuleSales/Activity/FetchLog?${params.toString()}`);
+                    if (!res.ok) throw new Error("Failed to fetch logs");
+
+                    const data = await res.json();
+                    allLogs = allLogs.concat(data.data ?? []);
+
+                    totalPages = data.pagination?.totalPages ?? 1;
+                    page++;
+                } while (page <= totalPages);
+
+                setPosts(allLogs);
+            } catch (err) {
+                console.error("Error fetching activity logs:", err);
                 toast.error("Error fetching activity logs.");
-                console.error("Fetch error:", error);
+                setPosts([]);
             } finally {
                 setLoading(false);
             }
         };
-        fetchActivityLogs();
-    }, []);
+
+        fetchAllActivityLogs();
+    }, [userDetails, dateCreatedFilterRange]);
 
     // Fetch user info for ReferenceIDs in posts
     useEffect(() => {
@@ -664,7 +701,7 @@ export default function Page() {
                                                         }
                                                     }}
                                                 >
-                                                  <DownloadCloud /> Download Photo
+                                                    <DownloadCloud /> Download Photo
                                                 </Button>
                                             )}
                                         </DialogFooter>
