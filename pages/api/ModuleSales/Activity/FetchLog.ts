@@ -7,6 +7,8 @@ interface ActivityLog {
   Type: string;
   Status: string;
   Location: string;
+  Latitude: string;
+  Longitude: string;
   date_created: string;
   PhotoURL?: string;
   Remarks: string;
@@ -31,6 +33,8 @@ export default async function fetchAccounts(req: NextApiRequest, res: NextApiRes
           Type: 1,
           Status: 1,
           Location: 1,
+          Latitude: 1,
+          Longitude: 1,
           date_created: 1,
           PhotoURL: 1,
           Remarks: 1,
@@ -47,6 +51,8 @@ export default async function fetchAccounts(req: NextApiRequest, res: NextApiRes
       Type: doc.Type,
       Status: doc.Status,
       Location: doc.Location,
+      Latitude: doc.Latitude,
+      Longitude: doc.Longitude,
       date_created: doc.date_created,
       PhotoURL: doc.PhotoURL,
       Remarks: doc.Remarks,
