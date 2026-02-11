@@ -80,6 +80,8 @@ export default function Page() {
 
     // Expanded rows state
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+    const [photoDialogOpen, setPhotoDialogOpen] = useState(false);
+    const [selectedPhoto, setSelectedPhoto] = useState<{ url?: string; date?: string } | null>(null);
 
     // Sync userId from query param to context
     useEffect(() => {
@@ -279,35 +281,6 @@ export default function Page() {
         return "gray";
     }
 
-    // Toggle expanded row
-    function toggleRow(id: string | undefined) {
-        if (!id) return;
-        setExpandedRows((prev) => {
-            const newSet = new Set(prev);
-            if (newSet.has(id)) {
-                newSet.delete(id);
-            } else {
-                newSet.add(id);
-            }
-            return newSet;
-        });
-    }
-
-    // Duration formatter
-    const formatDuration = (ms: number): string => {
-        const totalSeconds = Math.floor(ms / 1000);
-        const hours = Math.floor(totalSeconds / 3600);
-        const minutes = Math.floor((totalSeconds % 3600) / 60);
-        const seconds = totalSeconds % 60;
-
-        const parts = [];
-        if (hours > 0) parts.push(`${hours}h`);
-        if (minutes > 0) parts.push(`${minutes}m`);
-        if (seconds > 0) parts.push(`${seconds}s`);
-
-        return parts.length > 0 ? parts.join(" ") : "0s";
-    };
-
     // Simulate loading while typing with debounce
     useEffect(() => {
         if (searchQuery === "") {
@@ -382,6 +355,14 @@ export default function Page() {
         } finally {
             setLoading(false);
         }
+    }
+
+    function openPhotoDialog(post: ActivityLog) {
+        setSelectedPhoto({
+            url: post.PhotoURL,
+            date: post.date_created,
+        });
+        setPhotoDialogOpen(true);
     }
 
     return (
@@ -500,6 +481,19 @@ export default function Page() {
                                                     >
                                                         Edit
                                                     </Button>
+
+                                                    {post.PhotoURL && (
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                openPhotoDialog(post);
+                                                            }}
+                                                        >
+                                                            View Photo
+                                                        </Button>
+                                                    )}
                                                 </ItemActions>
                                             </Item>
                                         );
@@ -621,6 +615,62 @@ export default function Page() {
                                         </DialogFooter>
                                     </DialogContent>
                                 </Dialog>
+
+                                {/* Photo Dialog */}
+                                {/* Photo Dialog */}
+                                <Dialog open={photoDialogOpen} onOpenChange={setPhotoDialogOpen}>
+                                    <DialogContent className="max-w-sm">
+                                        <DialogHeader>
+                                            <DialogTitle>Photo Viewer</DialogTitle>
+                                        </DialogHeader>
+
+                                        {selectedPhoto?.url ? (
+                                            <div className="flex flex-col items-center gap-2">
+                                                <img
+                                                    src={selectedPhoto.url}
+                                                    alt="Activity Photo"
+                                                    className="w-full rounded-md object-contain"
+                                                />
+                                                <div className="text-sm text-white bg-black p-2 rounded">
+                                                    Date: {new Date(selectedPhoto.date || "").toLocaleString()}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm text-gray-500">No photo available.</p>
+                                        )}
+
+                                        <DialogFooter className="flex justify-end mt-4 gap-2">
+                                            <Button variant="outline" onClick={() => setPhotoDialogOpen(false)}>
+                                                Close
+                                            </Button>
+
+                                            {selectedPhoto?.url && (
+                                                <Button
+                                                    onClick={async () => {
+                                                        try {
+                                                            const res = await fetch(selectedPhoto.url!);
+                                                            const blob = await res.blob();
+                                                            const url = window.URL.createObjectURL(blob);
+                                                            const a = document.createElement("a");
+                                                            a.href = url;
+                                                            a.download = `ActivityPhoto_${new Date(selectedPhoto.date || "").toISOString()}.jpg`;
+                                                            document.body.appendChild(a);
+                                                            a.click();
+                                                            a.remove();
+                                                            window.URL.revokeObjectURL(url);
+                                                        } catch (err) {
+                                                            console.error("Download failed:", err);
+                                                            toast.error("Failed to download photo.");
+                                                        }
+                                                    }}
+                                                >
+                                                    Download Photo
+                                                </Button>
+                                            )}
+                                        </DialogFooter>
+                                    </DialogContent>
+                                </Dialog>
+
                             </div>
                         </SidebarInset>
                     </SidebarProvider>
