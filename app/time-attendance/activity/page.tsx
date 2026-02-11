@@ -664,7 +664,7 @@ export default function Page() {
                                                         }
                                                     }}
                                                 >
-                                                    Download Photo
+                                                  <DownloadCloud /> Download Photo
                                                 </Button>
                                             )}
                                         </DialogFooter>
