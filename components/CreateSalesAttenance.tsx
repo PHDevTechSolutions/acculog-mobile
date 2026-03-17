@@ -4,36 +4,22 @@ import dynamic from "next/dynamic";
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import Camera from "./camera";
-
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert";
-import { MapPin, CheckCircleIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
+  ArrowLeft, MapPin, CheckCircle2, LogIn, LogOut,
+  Building2, UserPlus, Users, FileText, AlertCircle, Search
+} from "lucide-react";
 import Select from "react-select";
 
-const ManualLocationPicker = dynamic(
-  () => import("./manual-location-picker"),
-  { ssr: false }
-);
+const ManualLocationPicker = dynamic(() => import("./manual-location-picker"), { ssr: false });
 
-/* ================= TYPES ================= */
+/* ── Types ─────────────────────────────────────────────────────────────────── */
 
 interface FormData {
   ReferenceID: string;
   TSM: string;
   Email: string;
-  Type: string; // will always be "Client Visit"
+  Type: string;
   Status: string;
   PhotoURL: string;
   Remarks: string;
@@ -57,9 +43,9 @@ interface CreateAttendanceProps {
   setFormAction: React.Dispatch<React.SetStateAction<FormData>>;
 }
 
-/* ================= COMPONENT ================= */
+/* ── Component ─────────────────────────────────────────────────────────────── */
 
-export default function CreateAttendance({
+export default function CreateSalesAttendance({
   open,
   onOpenChangeAction,
   formData,
@@ -71,134 +57,136 @@ export default function CreateAttendance({
   const [locationAddress, setLocationAddress] = useState("Fetching location...");
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
-
   const [manualLat, setManualLat] = useState<number | null>(null);
   const [manualLng, setManualLng] = useState<number | null>(null);
-
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showMap, setShowMap] = useState(false);
 
-  const [siteVisitAccounts, setSiteVisitAccounts] = useState<
-    { company_name: string }[]
-  >([]);
+  const [siteVisitAccounts, setSiteVisitAccounts] = useState<{ company_name: string }[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [accountsError, setAccountsError] = useState<string | null>(null);
+  const [siteVisitAccountsCount, setSiteVisitAccountsCount] = useState(0);
 
   const [lastStatus, setLastStatus] = useState<string | null>(null);
   const [loginCountToday, setLoginCountToday] = useState<number>(0);
-
-  // Local UI state to toggle Select visibility only
   const [clientType, setClientType] = useState<"New Client" | "Existing Client" | "">("");
-  const [siteVisitAccountsCount, setSiteVisitAccountsCount] = useState(0);
-  /* ================= EFFECTS ================= */
 
+  /* ── Reset on open ── */
   useEffect(() => {
     if (!open) return;
-
-    // Always reset clientType selection on open
     setClientType("");
+    setShowMap(false);
   }, [open]);
 
-  /* ================= GEOLOCATION ================= */
-
+  /* ── Geolocation ── */
   useEffect(() => {
     if (!open) return;
-
     setManualLat(null);
     setManualLng(null);
-
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
         setLatitude(coords.latitude);
         setLongitude(coords.longitude);
-
-        fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.latitude}&lon=${coords.longitude}`
-        )
-          .then((res) => res.json())
-          .then((data) =>
-            setLocationAddress(data.display_name || "Location detected")
-          );
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.latitude}&lon=${coords.longitude}`)
+          .then((r) => r.json())
+          .then((d) => setLocationAddress(d.display_name || "Location detected"));
       },
       () => setLocationAddress("Location not allowed"),
       { enableHighAccuracy: true }
     );
-
     return () => setCapturedImage(null);
   }, [open]);
 
-  /* ================= LOGIN SUMMARY ================= */
-
+  /* ── Login Summary (polls every 3s) ── */
   useEffect(() => {
     if (!open) return;
-
     const fetchSummary = async () => {
-      const res = await fetch(
-        `/api/ModuleSales/Activity/LoginSummary?referenceId=${userDetails.ReferenceID}`
-      );
+      const res = await fetch(`/api/ModuleSales/Activity/LoginSummary?referenceId=${userDetails.ReferenceID}`);
       if (!res.ok) return;
-
       const data = await res.json();
       setLastStatus(data.lastStatus);
       setLoginCountToday(data.loginCount);
-
-      onChangeAction(
-        "Status",
-        data.lastStatus === "Login" ? "Logout" : "Login"
-      );
+      onChangeAction("Status", data.lastStatus === "Login" ? "Logout" : "Login");
     };
-
     fetchSummary();
-    const i = setInterval(fetchSummary, 3000);
-    return () => clearInterval(i);
+    const interval = setInterval(fetchSummary, 3000);
+    return () => clearInterval(interval);
   }, [open, userDetails.ReferenceID, onChangeAction]);
 
-  /* ================= UPLOAD ================= */
+  /* ── Fetch accounts when Existing Client selected ── */
+  useEffect(() => {
+    if (!open || clientType !== "Existing Client") {
+      setSiteVisitAccounts([]);
+      setSiteVisitAccountsCount(0);
+      setAccountsError(null);
+      setLoadingAccounts(false);
+      return;
+    }
+    if (!userDetails.ReferenceID) {
+      setAccountsError("Missing ReferenceID");
+      setLoadingAccounts(false);
+      return;
+    }
+    setLoadingAccounts(true);
+    setAccountsError(null);
+    const fetchAccounts = (url: string) => {
+      fetch(url)
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.success) {
+            setSiteVisitAccounts(json.data || []);
+            setSiteVisitAccountsCount(json.count || json.data?.length || 0);
+            setAccountsError(null);
+          } else {
+            setSiteVisitAccounts([]);
+            setSiteVisitAccountsCount(0);
+            setAccountsError(json.error || "No accounts found");
+          }
+        })
+        .catch(() => setAccountsError("Error fetching accounts"))
+        .finally(() => setLoadingAccounts(false));
+    };
+    if (userDetails.Role === "Territory Sales Manager") {
+      fetchAccounts(`/api/fetch-tsm?referenceid=${encodeURIComponent(userDetails.ReferenceID)}`);
+    } else if (userDetails.Role === "Manager") {
+      fetchAccounts(`/api/fetch-manager?referenceid=${encodeURIComponent(userDetails.ReferenceID)}`);
+    } else {
+      fetchAccounts(`/api/fetch-account?referenceid=${encodeURIComponent(userDetails.ReferenceID)}`);
+    }
+  }, [open, clientType, userDetails.Role, userDetails.ReferenceID]);
 
+  /* ── Upload ── */
   const uploadToCloudinary = async (base64: string) => {
     const fd = new FormData();
     fd.append("file", base64);
     fd.append("upload_preset", "Xchire");
-
-    const res = await fetch(
-      "https://api.cloudinary.com/v1_1/dhczsyzcz/image/upload",
-      { method: "POST", body: fd }
-    );
+    const res = await fetch("https://api.cloudinary.com/v1_1/dhczsyzcz/image/upload", { method: "POST", body: fd });
     return (await res.json()).secure_url;
   };
 
-  /* ================= SUBMIT ================= */
-
+  /* ── Submit ── */
   const handleCreate = async () => {
     if (!capturedImage) return toast.error("Capture photo first.");
-
-    // Note: formData.Type is always "Client Visit", so no need to check SiteVisitAccount here
-
     setLoading(true);
-
     try {
       const photoURL = await uploadToCloudinary(capturedImage);
-
       const payload = {
         ...formData,
-        Type: "Client Visit", // force type here
+        Type: "Client Visit",
         PhotoURL: photoURL,
         Location: locationAddress,
         Latitude: manualLat ?? latitude,
         Longitude: manualLng ?? longitude,
       };
-
       const res = await fetch("/api/ModuleSales/Activity/AddLog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-
       if (!res.ok) throw new Error();
-
       toast.success("Attendance created!");
       fetchAccountAction();
-
       setFormAction({
         ReferenceID: userDetails.ReferenceID,
         Email: userDetails.Email,
@@ -209,7 +197,6 @@ export default function CreateAttendance({
         Remarks: "",
         SiteVisitAccount: "",
       });
-
       setCapturedImage(null);
       onOpenChangeAction(false);
     } catch {
@@ -219,191 +206,288 @@ export default function CreateAttendance({
     }
   };
 
-  /* ================= FETCH ACCOUNTS WHEN EXISTING CLIENT SELECTED ================= */
+  const isLogout = lastStatus === "Login";
+  const nextAction = isLogout ? "Logout" : "Login";
+  const isSubmitDisabled =
+    loading ||
+    !capturedImage ||
+    (clientType === "Existing Client" && !formData.SiteVisitAccount);
 
-  useEffect(() => {
-    if (!open || clientType !== "Existing Client") {
-      setSiteVisitAccounts([]);
-      setSiteVisitAccountsCount(0);
-      setAccountsError(null);
-      setLoadingAccounts(false);
-      return;
-    }
-
-    if (!userDetails.ReferenceID) {
-      setSiteVisitAccounts([]);
-      setSiteVisitAccountsCount(0);
-      setAccountsError("Missing ReferenceID");
-      setLoadingAccounts(false);
-      return;
-    }
-
-    setLoadingAccounts(true);
-    setAccountsError(null);
-
-    const fetchAccounts = (url: string) => {
-      fetch(url)
-        .then((res) => res.json())
-        .then((json) => {
-          if (json.success) {
-            setSiteVisitAccounts(json.data || []);
-            setSiteVisitAccountsCount(json.count || (json.data?.length ?? 0));
-            setAccountsError(null);
-          } else {
-            setSiteVisitAccounts([]);
-            setSiteVisitAccountsCount(0);
-            setAccountsError(json.error || "No accounts found");
-          }
-        })
-        .catch(() => {
-          setSiteVisitAccounts([]);
-          setSiteVisitAccountsCount(0);
-          setAccountsError("Error fetching accounts");
-        })
-        .finally(() => setLoadingAccounts(false));
-    };
-
-    if (userDetails.Role === "Territory Sales Manager") {
-      fetchAccounts(`/api/fetch-tsm?referenceid=${encodeURIComponent(userDetails.ReferenceID)}`);
-    } else if (userDetails.Role === "Manager") {
-      fetchAccounts(`/api/fetch-manager?referenceid=${encodeURIComponent(userDetails.ReferenceID)}`);
-    } else {
-      fetchAccounts(`/api/fetch-account?referenceid=${encodeURIComponent(userDetails.ReferenceID)}`);
-    }
-  }, [open, clientType, userDetails.Role, userDetails.ReferenceID]);
-
-  /* ================= UI ================= */
-
+  /* ── Render ── */
   return (
     <Dialog open={open} onOpenChange={onOpenChangeAction}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Create Attendance</DialogTitle>
-        </DialogHeader>
+      <DialogContent className="p-0 rounded-[28px] max-w-sm w-full mx-auto overflow-hidden border-0 shadow-2xl max-h-[92vh] flex flex-col">
 
-        <div className="p-4 bg-gray-50 rounded border text-sm">
-          <div>
-            <strong>Login Count Today:</strong> {loginCountToday}
-          </div>
-          <div>
-            <strong>Next Status:</strong>{" "}
-            <span
-              className={
-                lastStatus === "Login"
-                  ? "text-red-600"
-                  : "text-green-600"
-              }
+        {/* ── Header ── */}
+        <div className="bg-[#CC1318] px-6 pt-5 pb-5 flex-shrink-0">
+          <div className="flex items-center gap-3 mb-5">
+            <button
+              onClick={() => onOpenChangeAction(false)}
+              className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white hover:bg-white/30 transition-colors"
             >
-              {lastStatus === "Login" ? "Logout" : "Login"}
-            </span>
+              <ArrowLeft size={15} />
+            </button>
+            <div className="flex-1">
+              <h2 className="text-white font-semibold text-base leading-tight">Site Visit Log</h2>
+              <p className="text-white/65 text-[11px] mt-0.5">Client attendance entry</p>
+            </div>
+            <div className="text-right">
+              <p className="text-white/65 text-[11px]">
+                {new Date().toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
+              </p>
+              <p className="text-white font-semibold text-[13px]">
+                {new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}
+              </p>
+            </div>
+          </div>
+
+          {/* Status summary pill */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 bg-white/15 rounded-2xl px-4 py-2.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${isLogout ? "bg-red-300" : "bg-green-300"} animate-pulse`} />
+                <span className="text-white/75 text-[11px] font-medium">Next action</span>
+              </div>
+              <span className={`text-[12px] font-bold ${isLogout ? "text-red-200" : "text-green-200"}`}>
+                {nextAction}
+              </span>
+            </div>
+            <div className="bg-white/15 rounded-2xl px-4 py-2.5 text-center">
+              <p className="text-white/65 text-[10px]">Today</p>
+              <p className="text-white font-bold text-[15px]">{loginCountToday}</p>
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-col gap-4 mt-4">
-          <Camera onCaptureAction={setCapturedImage} />
+        {/* ── Body ── */}
+        <div className="overflow-y-auto flex-1 bg-[#F9F6F4]">
+          <div className="flex flex-col gap-4 p-5">
 
-          {capturedImage && (
-            <>
-              {/* RADIO — UI only, does NOT affect formData.Type */}
-              <div className="grid gap-2">
-                <Label>Client Type</Label>
-                <div className="flex gap-6">
-                  {["New Client", "Existing Client"].map((t) => (
-                    <label key={t} className="flex gap-2 items-center">
-                      <input
-                        type="radio"
-                        name="clientType"
-                        checked={clientType === t}
-                        onChange={() => {
-                          setClientType(t as "New Client" | "Existing Client");
-
-                          // Clear SiteVisitAccount if New Client selected
-                          if (t === "New Client") {
-                            onChangeAction("SiteVisitAccount", "");
-                          }
-                        }}
-                      />
-                      {t}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* SELECT — only visible if "Existing Client" selected on UI */}
-              {clientType === "Existing Client" && (
-                <div className="grid gap-2">
-                  <Label>
-                    Site Visit Account{" "}
-                    <span className="text-xs text-green-500">({siteVisitAccountsCount} total)</span>
-                  </Label>
-                  <Select
-                    options={siteVisitAccounts.map((a) => ({
-                      value: a.company_name,
-                      label: a.company_name,
-                    }))}
-                    value={
-                      formData.SiteVisitAccount
-                        ? {
-                          value: formData.SiteVisitAccount,
-                          label: formData.SiteVisitAccount,
-                        }
-                        : null
-                    }
-                    onChange={(s) =>
-                      onChangeAction("SiteVisitAccount", s?.value || "")
-                    }
-                  />
+            {/* Camera */}
+            <div>
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-2">
+                📷 Photo Verification
+              </p>
+              <Camera onCaptureAction={(img) => setCapturedImage(img)} />
+              {capturedImage && (
+                <div className="mt-2 flex items-center gap-2 bg-[#EEF7F2] rounded-xl px-3 py-2">
+                  <CheckCircle2 size={14} className="text-[#1A7A4A]" />
+                  <span className="text-[12px] font-semibold text-[#1A7A4A]">Photo captured successfully</span>
                 </div>
               )}
+            </div>
 
-              {/* REMARKS */}
-              <div className="grid gap-2">
-                <Label>Remarks</Label>
-                <Textarea
-                  value={formData.Remarks}
-                  onChange={(e) =>
-                    onChangeAction("Remarks", e.target.value)
-                  }
-                />
-              </div>
+            {/* Post-capture form */}
+            {capturedImage && (
+              <>
 
-              {/* LOCATION */}
-              <Alert className="text-xs">
-                <MapPin className="w-4 h-4" />
-                <AlertTitle>My Location</AlertTitle>
-                <AlertDescription>{locationAddress}</AlertDescription>
-              </Alert>
+                {/* Client Type toggle */}
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-2">
+                    Client Type
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {(["New Client", "Existing Client"] as const).map((t) => {
+                      const isSelected = clientType === t;
+                      const isNew = t === "New Client";
+                      return (
+                        <button
+                          key={t}
+                          onClick={() => {
+                            setClientType(t);
+                            if (t === "New Client") onChangeAction("SiteVisitAccount", "");
+                          }}
+                          className={[
+                            "rounded-2xl border-[1.5px] p-4 flex flex-col items-center gap-2 transition-all",
+                            isSelected
+                              ? isNew
+                                ? "bg-[#E6F1FB] border-[#185FA5]"
+                                : "bg-[#EEF7F2] border-[#1A7A4A]"
+                              : "bg-white border-gray-200 hover:border-gray-300",
+                          ].join(" ")}
+                        >
+                          {isNew
+                            ? <UserPlus size={20} className={isSelected ? "text-[#185FA5]" : "text-gray-400"} />
+                            : <Users size={20} className={isSelected ? "text-[#1A7A4A]" : "text-gray-400"} />
+                          }
+                          <span className={[
+                            "text-[13px] font-semibold",
+                            isSelected
+                              ? isNew ? "text-[#185FA5]" : "text-[#1A7A4A]"
+                              : "text-gray-700",
+                          ].join(" ")}>
+                            {t}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-              <ManualLocationPicker
-                latitude={manualLat ?? latitude}
-                longitude={manualLng ?? longitude}
-                onChange={(lat, lng, addr) => {
-                  setManualLat(lat);
-                  setManualLng(lng);
-                  if (addr) setLocationAddress(addr);
-                }}
-              />
+                {/* Existing Client — account selector */}
+                {clientType === "Existing Client" && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">
+                        Site Visit Account
+                      </p>
+                      {siteVisitAccountsCount > 0 && (
+                        <span className="text-[11px] font-semibold text-[#1A7A4A] bg-[#EEF7F2] rounded-xl px-2.5 py-0.5">
+                          {siteVisitAccountsCount} accounts
+                        </span>
+                      )}
+                    </div>
 
-              {/* SUBMIT BUTTON */}
-              <Button
-                className={`text-lg p-6 ${lastStatus === "Login" ? "bg-red-600" : "bg-green-600"
-                  }`}
-                onClick={handleCreate}
-                disabled={
-                  loading ||
-                  !capturedImage ||
-                  (clientType === "Existing Client" && !formData.SiteVisitAccount)
-                }
-              >
-                <CheckCircleIcon />
-                {loading
-                  ? "Saving..."
-                  : lastStatus === "Login"
-                    ? " Logout"
-                    : " Login"}
-              </Button>
-            </>
-          )}
+                    {loadingAccounts ? (
+                      <div className="bg-white rounded-2xl border border-gray-200 px-4 py-4 flex items-center gap-3">
+                        <div className="w-4 h-4 border-2 border-gray-200 border-t-[#CC1318] rounded-full animate-spin" />
+                        <span className="text-[13px] text-gray-400">Loading accounts...</span>
+                      </div>
+                    ) : accountsError ? (
+                      <div className="bg-[#FEF0F0] border border-red-200 rounded-2xl px-4 py-3 flex items-center gap-2">
+                        <AlertCircle size={14} className="text-[#CC1318] flex-shrink-0" />
+                        <span className="text-[12px] text-[#CC1318]">{accountsError}</span>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl overflow-hidden border border-gray-200 bg-white">
+                        <Select
+                          options={siteVisitAccounts.map((a) => ({
+                            value: a.company_name,
+                            label: a.company_name,
+                          }))}
+                          value={
+                            formData.SiteVisitAccount
+                              ? { value: formData.SiteVisitAccount, label: formData.SiteVisitAccount }
+                              : null
+                          }
+                          onChange={(s) => onChangeAction("SiteVisitAccount", s?.value || "")}
+                          placeholder="Search company..."
+                          classNamePrefix="mb-select"
+                          styles={{
+                            control: (base) => ({
+                              ...base,
+                              border: "none",
+                              boxShadow: "none",
+                              borderRadius: "16px",
+                              padding: "4px 6px",
+                              fontSize: "13px",
+                              backgroundColor: "transparent",
+                            }),
+                            menu: (base) => ({
+                              ...base,
+                              borderRadius: "16px",
+                              overflow: "hidden",
+                              boxShadow: "0 8px 32px rgba(26,10,11,0.12)",
+                              border: "1px solid #EDE5E1",
+                              fontSize: "13px",
+                            }),
+                            option: (base, state) => ({
+                              ...base,
+                              backgroundColor: state.isSelected
+                                ? "#CC1318"
+                                : state.isFocused
+                                ? "#FFF0F0"
+                                : "white",
+                              color: state.isSelected ? "white" : "#1A0A0B",
+                              padding: "10px 16px",
+                            }),
+                            placeholder: (base) => ({ ...base, color: "#A89898", fontSize: "13px" }),
+                            singleValue: (base) => ({ ...base, color: "#1A0A0B", fontWeight: 600 }),
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Remarks */}
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                    <FileText size={11} /> Remarks
+                  </p>
+                  <textarea
+                    value={formData.Remarks}
+                    onChange={(e) => onChangeAction("Remarks", e.target.value)}
+                    placeholder="Add notes or feedback (optional)..."
+                    rows={3}
+                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-[13px] text-gray-800 placeholder:text-gray-300 resize-none outline-none focus:border-[#CC1318] focus:ring-2 focus:ring-[#CC1318]/10 transition-all"
+                  />
+                </div>
+
+                {/* Location */}
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-2">
+                    📍 Location
+                  </p>
+                  <div className="rounded-2xl border border-gray-200 bg-white p-4 flex gap-3 items-start">
+                    <div className="w-9 h-9 rounded-xl bg-[#FFF0F0] flex items-center justify-center flex-shrink-0">
+                      <MapPin size={16} className="text-[#CC1318]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-semibold text-[#CC1318] uppercase tracking-wider mb-1">
+                        Detected Location
+                      </p>
+                      <p className="text-[12px] text-gray-500 leading-snug">{locationAddress}</p>
+                      <button
+                        onClick={() => setShowMap(!showMap)}
+                        className="mt-2 text-[11px] font-semibold text-[#CC1318] hover:underline"
+                      >
+                        {showMap ? "Hide map" : "⚙ Set manually →"}
+                      </button>
+                    </div>
+                  </div>
+                  {showMap && (
+                    <div className="mt-2 rounded-2xl overflow-hidden border border-gray-200">
+                      <ManualLocationPicker
+                        latitude={manualLat ?? latitude}
+                        longitude={manualLng ?? longitude}
+                        onChange={(lat, lng, addr) => {
+                          setManualLat(lat);
+                          setManualLng(lng);
+                          if (addr) setLocationAddress(addr);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Submit */}
+                <button
+                  onClick={handleCreate}
+                  disabled={isSubmitDisabled}
+                  className={[
+                    "w-full rounded-2xl py-4 text-[15px] font-semibold flex items-center justify-center gap-2 transition-all",
+                    isSubmitDisabled
+                      ? "bg-gray-100 text-gray-300 cursor-not-allowed"
+                      : isLogout
+                      ? "bg-[#CC1318] text-white hover:bg-[#A8100F] active:scale-[0.98] shadow-lg shadow-red-200"
+                      : "bg-[#1A7A4A] text-white hover:bg-[#155f38] active:scale-[0.98] shadow-lg shadow-green-200",
+                  ].join(" ")}
+                >
+                  {loading ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      Saving...
+                    </>
+                  ) : isLogout ? (
+                    <>
+                      <LogOut size={16} />
+                      Logout
+                    </>
+                  ) : (
+                    <>
+                      <LogIn size={16} />
+                      Login
+                    </>
+                  )}
+                </button>
+
+                <p className="text-center text-[11px] text-gray-300 pb-2">
+                  Submission will be recorded with timestamp & GPS location
+                </p>
+              </>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>

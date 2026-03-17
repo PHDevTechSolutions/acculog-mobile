@@ -1,20 +1,28 @@
 {
-  "name": "Acculog - Attendance & Time Tracking System",
+  "name": "Acculog - Attendance & Time Tracking",
   "short_name": "Acculog",
-  "start_url": "/",
+  "description": "Field attendance, site visits, and timesheet management",
+  "start_url": "/Login",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#00bcd4",
+  "orientation": "portrait",
+  "background_color": "#F9F6F4",
+  "theme_color": "#CC1318",
+  "categories": ["business", "productivity"],
   "icons": [
     {
       "src": "/fluxx.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/fluxx-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
-  ]
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
 }

@@ -8,24 +8,40 @@ export default async function updateActivityLog(
 ) {
   if (req.method !== "PUT") {
     res.setHeader("Allow", ["PUT"]);
-    return res.status(405).end(`Method ${req.method} Not Allowed`);
+    return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
   }
 
   try {
-    const { _id, Remarks } = req.body;
+    const { _id, Remarks } = req.body ?? {};
 
-    if (!_id || Remarks === undefined) {
-      return res.status(400).json({ error: "Missing required fields" });
+    if (!_id || typeof _id !== "string" || !_id.trim()) {
+      return res.status(400).json({ error: "_id is required" });
     }
 
-    const db = await connectToDatabase();
-    const activityLogsCollection = db.collection("TaskLog");
+    if (Remarks === undefined || Remarks === null) {
+      return res.status(400).json({ error: "Remarks field is required" });
+    }
 
-    const result = await activityLogsCollection.updateOne(
-      { _id: new ObjectId(_id) },
+    // Validate ObjectId format before hitting the DB
+    if (!ObjectId.isValid(_id.trim())) {
+      return res.status(400).json({ error: "Invalid _id format" });
+    }
+
+    let db;
+    try {
+      db = await connectToDatabase();
+    } catch (dbErr) {
+      console.error("DB connection error:", dbErr);
+      return res.status(503).json({ error: "Database connection failed. Please try again." });
+    }
+
+    const collection = db.collection("TaskLog");
+
+    const result = await collection.updateOne(
+      { _id: new ObjectId(_id.trim()) },
       {
         $set: {
-          Remarks,
+          Remarks:   typeof Remarks === "string" ? Remarks.trim() : String(Remarks),
           updatedAt: new Date(),
         },
       }

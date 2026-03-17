@@ -4,34 +4,10 @@ import dynamic from "next/dynamic";
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import Camera from "./camera";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectTrigger,
-  SelectContent,
-  SelectItem,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
-import { MapPin } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { MapPin, ArrowLeft, CheckCircle2, Clock, LogIn, LogOut, FileText, AlertCircle } from "lucide-react";
 
-const ManualLocationPicker = dynamic(
-  () => import("./manual-location-picker"),
-  { ssr: false }
-);
+const ManualLocationPicker = dynamic(() => import("./manual-location-picker"), { ssr: false });
 
 interface FormData {
   ReferenceID: string;
@@ -70,83 +46,46 @@ export default function CreateAttendance({
   setFormAction,
 }: CreateAttendanceProps) {
   const [locationAddress, setLocationAddress] = useState("Fetching location...");
-
   const [manualLat, setManualLat] = useState<number | null>(null);
   const [manualLng, setManualLng] = useState<number | null>(null);
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
-  
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
   const [lastStatus, setLastStatus] = useState<"Login" | "Logout" | null>(null);
   const [lastTime, setLastTime] = useState<string | null>(null);
+  const [showMap, setShowMap] = useState(false);
 
-  // Auto-set Type to "On Field" on mount or open
   useEffect(() => {
-    if (open && formData.Type !== "On Field") {
-      onChangeAction("Type", "On Field");
-    }
-  }, [open, formData.Type, onChangeAction]);
+    if (open && formData.Type !== "On Field") onChangeAction("Type", "On Field");
+  }, [open]);
 
-  // Auto-fetch location when open
   useEffect(() => {
     if (!open) return;
-
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
         setLatitude(coords.latitude);
         setLongitude(coords.longitude);
-
-        fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.latitude}&lon=${coords.longitude}`
-        )
-          .then((res) => res.json())
-          .then((data) => setLocationAddress(data.display_name || "Location detected"))
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.latitude}&lon=${coords.longitude}`)
+          .then((r) => r.json())
+          .then((d) => setLocationAddress(d.display_name || "Location detected"))
           .catch(() => setLocationAddress("Location detected (no address)"));
       },
-      (error) => {
-        console.error("Geolocation error:", error);
-        setLocationAddress("Location unavailable");
-      },
+      () => setLocationAddress("Location unavailable"),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
-
     return () => setCapturedImage(null);
   }, [open]);
-
-  const uploadToCloudinary = async (base64: string): Promise<string> => {
-    const imgData = new FormData();
-    imgData.append("file", base64);
-    imgData.append("upload_preset", "Xchire");
-
-    const res = await fetch("https://api.cloudinary.com/v1_1/dhczsyzcz/image/upload", {
-      method: "POST",
-      body: imgData,
-    });
-
-    const data = await res.json();
-    return data.secure_url;
-  };
 
   useEffect(() => {
     const fetchLastStatus = async () => {
       try {
-        const res = await fetch(
-          `/api/ModuleSales/Activity/LastStatus?referenceId=${userDetails.ReferenceID}`
-        );
+        const res = await fetch(`/api/ModuleSales/Activity/LastStatus?referenceId=${userDetails.ReferenceID}`);
         if (!res.ok) return;
-
         const data = await res.json();
-
         if (data?.Status) {
           setLastStatus(data.Status);
-          setLastTime(
-            new Date(data.date_created).toLocaleTimeString("en-PH", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          );
+          setLastTime(new Date(data.date_created).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" }));
         } else {
           setLastStatus(null);
           setLastTime(null);
@@ -155,50 +94,32 @@ export default function CreateAttendance({
         console.error(err);
       }
     };
-
     fetchLastStatus();
   }, [userDetails.ReferenceID]);
 
+  const uploadToCloudinary = async (base64: string): Promise<string> => {
+    const imgData = new FormData();
+    imgData.append("file", base64);
+    imgData.append("upload_preset", "Xchire");
+    const res = await fetch("https://api.cloudinary.com/v1_1/dhczsyzcz/image/upload", { method: "POST", body: imgData });
+    const data = await res.json();
+    return data.secure_url;
+  };
+
   const handleCreate = async () => {
     if (!capturedImage) return toast.error("Please capture a photo first.");
-    if (!locationAddress || locationAddress === "Fetching location...")
-      return toast.error("Location not ready yet.");
-
+    if (!locationAddress || locationAddress === "Fetching location...") return toast.error("Location not ready yet.");
     setLoading(true);
     try {
       const photoURL = await uploadToCloudinary(capturedImage);
-
-      const payload = {
-        ...formData,
-        PhotoURL: photoURL,
-        Location: locationAddress,
-        Latitude: latitude,
-        Longitude: longitude,
-      };
-
-      const response = await fetch("/api/ModuleSales/Activity/AddLog", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
+      const payload = { ...formData, PhotoURL: photoURL, Location: locationAddress, Latitude: latitude, Longitude: longitude };
+      const response = await fetch("/api/ModuleSales/Activity/AddLog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Failed to create attendance");
-
-      toast.success("Attendance created!");
+      toast.success("Attendance recorded successfully!");
       fetchAccountAction();
       onOpenChangeAction(false);
-
-      setFormAction({
-        ReferenceID: userDetails.ReferenceID,
-        Email: userDetails.Email,
-        Type: "On Field",
-        Status: "",
-        PhotoURL: "",
-        Remarks: "",
-        TSM: "",
-      });
-
+      setFormAction({ ReferenceID: userDetails.ReferenceID, Email: userDetails.Email, Type: "On Field", Status: "", PhotoURL: "", Remarks: "", TSM: "" });
       setCapturedImage(null);
     } catch (err) {
       console.error(err);
@@ -207,117 +128,181 @@ export default function CreateAttendance({
     setLoading(false);
   };
 
+  const isSubmitDisabled = loading || !formData.Status || !capturedImage || locationAddress === "Fetching location...";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChangeAction}>
-      <DialogContent className="rounded-lg max-h-[90vh] overflow-y-auto w-full max-w-sm sm:max-w-lg md:max-w-lg mx-auto px-4 sm:px-6 md:px-8">
-        <DialogHeader>
-          <DialogTitle>Create Attendance</DialogTitle>
-        </DialogHeader>
+      <DialogContent className="p-0 rounded-[28px] max-w-sm w-full mx-auto overflow-hidden border-0 shadow-2xl max-h-[92vh] flex flex-col">
 
-        <div className="flex flex-col gap-4 mt-4">
-
-          {/* CURRENT STATUS */}
-          {lastStatus && (
-            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
-              <p>
-                <strong>Current Status:</strong>{" "}
-                <span
-                  className={
-                    lastStatus === "Login"
-                      ? "text-green-600 font-semibold"
-                      : "text-red-600 font-semibold"
-                  }
-                >
-                  {lastStatus === "Login" ? "Logged In" : "Logged Out"}
-                </span>
+        {/* ── Header ── */}
+        <div className="bg-[#CC1318] px-6 pt-5 pb-6 flex-shrink-0">
+          <div className="flex items-center gap-3 mb-5">
+            <button
+              onClick={() => onOpenChangeAction(false)}
+              className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white hover:bg-white/30 transition-colors"
+            >
+              <ArrowLeft size={15} />
+            </button>
+            <div className="flex-1">
+              <h2 className="text-white font-semibold text-base leading-tight">Create Attendance</h2>
+              <p className="text-white/65 text-[11px] mt-0.5">Field log entry</p>
+            </div>
+            <div className="text-right">
+              <p className="text-white/65 text-[11px]">
+                {new Date().toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
               </p>
+              <p className="text-white font-semibold text-[13px]">
+                {new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}
+              </p>
+            </div>
+          </div>
+        </div>
 
-              {lastTime && (
-                <p className="text-gray-500 mt-1">
-                  Last activity: {lastTime}
-                </p>
+        {/* ── Body ── */}
+        <div className="overflow-y-auto flex-1 bg-[#F9F6F4]">
+          <div className="flex flex-col gap-4 p-5">
+
+            {/* Current Status Banner */}
+            {lastStatus && (
+              <div className={`rounded-2xl border px-4 py-3 flex items-center gap-3 ${lastStatus === "Login" ? "bg-[#EEF7F2] border-green-200" : "bg-[#FEF0F0] border-red-200"}`}>
+                {lastStatus === "Login"
+                  ? <CheckCircle2 size={18} className="text-[#1A7A4A] flex-shrink-0" />
+                  : <AlertCircle size={18} className="text-[#CC1318] flex-shrink-0" />}
+                <div>
+                  <p className={`text-[12px] font-semibold ${lastStatus === "Login" ? "text-[#1A7A4A]" : "text-[#CC1318]"}`}>
+                    Currently {lastStatus === "Login" ? "Logged In" : "Logged Out"}
+                  </p>
+                  {lastTime && <p className="text-[11px] text-gray-400 mt-0.5">Last activity: {lastStatus} at {lastTime}</p>}
+                </div>
+              </div>
+            )}
+
+            {/* Camera */}
+            <div>
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-2">Photo Verification</p>
+              <Camera onCaptureAction={(img) => setCapturedImage(img)} />
+              {capturedImage && (
+                <div className="mt-2 flex items-center gap-2 bg-[#EEF7F2] rounded-xl px-3 py-2">
+                  <CheckCircle2 size={14} className="text-[#1A7A4A]" />
+                  <span className="text-[12px] font-semibold text-[#1A7A4A]">Photo captured successfully</span>
+                </div>
               )}
             </div>
-          )}
 
-          {/* CAMERA */}
-          <Camera onCaptureAction={(img) => setCapturedImage(img)} />
+            {/* Show form after capture */}
+            {capturedImage && (
+              <>
+                {/* Attendance Status */}
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-2">Attendance Status</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => onChangeAction("Status", "Login")}
+                      disabled={lastStatus === "Login"}
+                      className={`rounded-2xl border-[1.5px] p-4 flex flex-col items-center gap-2 transition-all ${
+                        formData.Status === "Login"
+                          ? "bg-[#EEF7F2] border-[#1A7A4A]"
+                          : "bg-white border-gray-200 hover:border-gray-300"
+                      } ${lastStatus === "Login" ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                    >
+                      <LogIn size={20} className={formData.Status === "Login" ? "text-[#1A7A4A]" : "text-gray-400"} />
+                      <span className={`text-[13px] font-semibold ${formData.Status === "Login" ? "text-[#1A7A4A]" : "text-gray-700"}`}>Login</span>
+                      <span className="text-[10px] text-gray-400">Start of shift</span>
+                    </button>
+                    <button
+                      onClick={() => onChangeAction("Status", "Logout")}
+                      disabled={lastStatus === "Logout"}
+                      className={`rounded-2xl border-[1.5px] p-4 flex flex-col items-center gap-2 transition-all ${
+                        formData.Status === "Logout"
+                          ? "bg-[#FEF0F0] border-[#CC1318]"
+                          : "bg-white border-gray-200 hover:border-gray-300"
+                      } ${lastStatus === "Logout" ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                    >
+                      <LogOut size={20} className={formData.Status === "Logout" ? "text-[#CC1318]" : "text-gray-400"} />
+                      <span className={`text-[13px] font-semibold ${formData.Status === "Logout" ? "text-[#CC1318]" : "text-gray-700"}`}>Logout</span>
+                      <span className="text-[10px] text-gray-400">End of shift</span>
+                    </button>
+                  </div>
+                </div>
 
-          {/* FORM FIELDS (SHOW AFTER CAPTURE) */}
-          {capturedImage && (
-            <>
-              {/* STATUS */}
-              <div className="grid gap-2">
-                <Label>Status</Label>
-                <Select
-                  value={formData.Status}
-                  onValueChange={(v) => onChangeAction("Status", v)}
+                {/* Remarks */}
+                <div>
+                  <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                    <FileText size={12} /> Remarks
+                  </label>
+                  <textarea
+                    value={formData.Remarks}
+                    onChange={(e) => onChangeAction("Remarks", e.target.value)}
+                    placeholder="Add notes or remarks (optional)..."
+                    rows={3}
+                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-[13px] text-gray-800 placeholder:text-gray-300 resize-none outline-none focus:border-[#CC1318] focus:ring-2 focus:ring-[#CC1318]/10 transition-all"
+                  />
+                </div>
+
+                {/* Location */}
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-2">Location</p>
+                  <div className="rounded-2xl border border-gray-200 bg-white p-4 flex gap-3 items-start">
+                    <div className="w-9 h-9 rounded-xl bg-[#FFF0F0] flex items-center justify-center flex-shrink-0">
+                      <MapPin size={16} className="text-[#CC1318]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-semibold text-[#CC1318] uppercase tracking-wider mb-1">Detected Location</p>
+                      <p className="text-[12px] text-gray-500 leading-snug">{locationAddress}</p>
+                      <button
+                        onClick={() => setShowMap(!showMap)}
+                        className="mt-2 text-[11px] font-semibold text-[#CC1318] hover:underline"
+                      >
+                        {showMap ? "Hide map" : "⚙ Set manually →"}
+                      </button>
+                    </div>
+                  </div>
+                  {showMap && (
+                    <div className="mt-2 rounded-2xl overflow-hidden border border-gray-200">
+                      <ManualLocationPicker
+                        latitude={manualLat ?? latitude}
+                        longitude={manualLng ?? longitude}
+                        onChange={(lat, lng, address) => {
+                          setManualLat(lat);
+                          setManualLng(lng);
+                          if (address) setLocationAddress(address);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Submit */}
+                <button
+                  onClick={handleCreate}
+                  disabled={isSubmitDisabled}
+                  className={`w-full rounded-2xl py-4 text-[15px] font-semibold flex items-center justify-center gap-2 transition-all ${
+                    isSubmitDisabled
+                      ? "bg-gray-100 text-gray-300 cursor-not-allowed"
+                      : "bg-[#CC1318] text-white hover:bg-[#A8100F] active:scale-[0.98] shadow-lg shadow-red-200"
+                  }`}
                 >
-                  <SelectTrigger
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs
-                           focus:ring-2 focus:ring-black focus:outline-none transition-all"
-                  >
-                    <SelectValue placeholder="Select Status" />
-                  </SelectTrigger>
+                  {loading ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={16} />
+                      Submit Attendance
+                    </>
+                  )}
+                </button>
 
-                  <SelectContent>
-                    <SelectItem value="Login" disabled={lastStatus === "Login"}>
-                      Login {lastStatus === "Login" && "(Current)"}
-                    </SelectItem>
-                    <SelectItem value="Logout" disabled={lastStatus === "Logout"}>
-                      Logout {lastStatus === "Logout" && "(Current)"}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* REMARKS */}
-              <div className="grid gap-2">
-                <Label>Remarks</Label>
-                <Textarea
-                  value={formData.Remarks}
-                  onChange={(e) => onChangeAction("Remarks", e.target.value)}
-                  rows={3}
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <Alert className="text-xs">
-                  <MapPin className="w-4 h-4 text-blue-500" />
-                  <AlertTitle>My Location</AlertTitle>
-                  <AlertDescription>{locationAddress}</AlertDescription>
-                </Alert>
-
-                <ManualLocationPicker
-                  latitude={manualLat ?? latitude}
-                  longitude={manualLng ?? longitude}
-                  onChange={(lat, lng, address) => {
-                    setManualLat(lat);
-                    setManualLng(lng);
-                    if (address) setLocationAddress(address);
-                  }}
-                />
-              </div>
-
-              {/* SUBMIT */}
-              <Button
-                onClick={handleCreate}
-                disabled={
-                  loading ||
-                  !formData.Status ||
-                  !capturedImage ||
-                  locationAddress === "Fetching location..."
-                }
-                className="w-full"
-              >
-                {loading ? "Saving..." : "Create Attendance"}
-              </Button>
-            </>
-          )}
-
+                <p className="text-center text-[11px] text-gray-300 pb-2">
+                  Submission will be recorded with timestamp & GPS location
+                </p>
+              </>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
-
   );
 }
