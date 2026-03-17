@@ -233,8 +233,8 @@ function HomeTab({
             )}
           </div>
           <p className="text-white/70 text-xs mb-1">{greeting} 👋</p>
-          <h1 className="text-white text-xl font-semibold mb-0.5">{userDetails ? `${userDetails.Firstname} ${userDetails.Lastname}` : "Loading..."}</h1>
-          <p className="text-white/60 text-[12px]">{userDetails?.Role ?? "—"} · {userDetails?.Department ?? "—"}</p>
+          <h1 className="text-white uppercase text-xl font-semibold mb-0.5">{userDetails ? `${userDetails.Firstname} ${userDetails.Lastname}` : "Loading..."}</h1>
+          <p className="text-white/60 text-[12px] uppercase">{userDetails?.Role ?? "—"} · {userDetails?.Department ?? "—"}</p>
         </div>
       </div>
 
