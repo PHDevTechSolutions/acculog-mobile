@@ -7,7 +7,7 @@ import Camera from "./camera";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   ArrowLeft, MapPin, CheckCircle2, LogIn, LogOut,
-  Building2, UserPlus, Users, FileText, AlertCircle, Search
+  UserPlus, Users, FileText, AlertCircle,
 } from "lucide-react";
 import Select from "react-select";
 
@@ -72,6 +72,8 @@ export default function CreateSalesAttendance({
   const [loginCountToday, setLoginCountToday] = useState<number>(0);
   const [clientType, setClientType] = useState<"New Client" | "Existing Client" | "">("");
 
+  const [selectMenuOpen, setSelectMenuOpen] = useState(false);
+
   /* ── Reset on open ── */
   useEffect(() => {
     if (!open) return;
@@ -88,7 +90,9 @@ export default function CreateSalesAttendance({
       ({ coords }) => {
         setLatitude(coords.latitude);
         setLongitude(coords.longitude);
-        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.latitude}&lon=${coords.longitude}`)
+        fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.latitude}&lon=${coords.longitude}`
+        )
           .then((r) => r.json())
           .then((d) => setLocationAddress(d.display_name || "Location detected"));
       },
@@ -98,20 +102,20 @@ export default function CreateSalesAttendance({
     return () => setCapturedImage(null);
   }, [open]);
 
-  /* ── Login Summary (polls every 3s) ── */
+  /* ── Login Summary — fetch ONCE when dialog opens, no polling ── */
   useEffect(() => {
     if (!open) return;
-    const fetchSummary = async () => {
-      const res = await fetch(`/api/ModuleSales/Activity/LoginSummary?referenceId=${userDetails.ReferenceID}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      setLastStatus(data.lastStatus);
-      setLoginCountToday(data.loginCount);
-      onChangeAction("Status", data.lastStatus === "Login" ? "Logout" : "Login");
-    };
-    fetchSummary();
-    const interval = setInterval(fetchSummary, 3000);
-    return () => clearInterval(interval);
+    fetch(`/api/ModuleSales/Activity/LoginSummary?referenceId=${userDetails.ReferenceID}`)
+      .then((res) => {
+        if (!res.ok) return;
+        return res.json();
+      })
+      .then((data) => {
+        if (!data) return;
+        setLastStatus(data.lastStatus);
+        setLoginCountToday(data.loginCount);
+        onChangeAction("Status", data.lastStatus === "Login" ? "Logout" : "Login");
+      });
   }, [open, userDetails.ReferenceID, onChangeAction]);
 
   /* ── Fetch accounts when Existing Client selected ── */
@@ -130,6 +134,7 @@ export default function CreateSalesAttendance({
     }
     setLoadingAccounts(true);
     setAccountsError(null);
+
     const fetchAccounts = (url: string) => {
       fetch(url)
         .then((r) => r.json())
@@ -147,6 +152,7 @@ export default function CreateSalesAttendance({
         .catch(() => setAccountsError("Error fetching accounts"))
         .finally(() => setLoadingAccounts(false));
     };
+
     if (userDetails.Role === "Territory Sales Manager") {
       fetchAccounts(`/api/fetch-tsm?referenceid=${encodeURIComponent(userDetails.ReferenceID)}`);
     } else if (userDetails.Role === "Manager") {
@@ -161,7 +167,10 @@ export default function CreateSalesAttendance({
     const fd = new FormData();
     fd.append("file", base64);
     fd.append("upload_preset", "Xchire");
-    const res = await fetch("https://api.cloudinary.com/v1_1/dhczsyzcz/image/upload", { method: "POST", body: fd });
+    const res = await fetch("https://api.cloudinary.com/v1_1/dhczsyzcz/image/upload", {
+      method: "POST",
+      body: fd,
+    });
     return (await res.json()).secure_url;
   };
 
@@ -211,13 +220,21 @@ export default function CreateSalesAttendance({
   const isSubmitDisabled =
     loading ||
     !capturedImage ||
+    !clientType ||
     (clientType === "Existing Client" && !formData.SiteVisitAccount);
 
   /* ── Render ── */
   return (
     <Dialog open={open} onOpenChange={onOpenChangeAction}>
-      <DialogContent className="p-0 rounded-[28px] max-w-sm w-full mx-auto overflow-hidden border-0 shadow-2xl max-h-[92vh] flex flex-col">
-
+      <DialogContent
+        className="p-0 rounded-[28px] max-w-sm w-full mx-auto overflow-hidden border-0 shadow-2xl max-h-[92vh] flex flex-col"
+        onPointerDownOutside={(e) => {
+          if (selectMenuOpen) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (selectMenuOpen) e.preventDefault();
+        }}
+      >
         {/* ── Header ── */}
         <div className="bg-[#CC1318] px-6 pt-5 pb-5 flex-shrink-0">
           <div className="flex items-center gap-3 mb-5">
@@ -245,10 +262,18 @@ export default function CreateSalesAttendance({
           <div className="flex items-center gap-3">
             <div className="flex-1 bg-white/15 rounded-2xl px-4 py-2.5 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${isLogout ? "bg-red-300" : "bg-green-300"} animate-pulse`} />
+                <div
+                  className={`w-2 h-2 rounded-full ${
+                    isLogout ? "bg-red-300" : "bg-green-300"
+                  } animate-pulse`}
+                />
                 <span className="text-white/75 text-[11px] font-medium">Next action</span>
               </div>
-              <span className={`text-[12px] font-bold ${isLogout ? "text-red-200" : "text-green-200"}`}>
+              <span
+                className={`text-[12px] font-bold ${
+                  isLogout ? "text-red-200" : "text-green-200"
+                }`}
+              >
                 {nextAction}
               </span>
             </div>
@@ -272,7 +297,9 @@ export default function CreateSalesAttendance({
               {capturedImage && (
                 <div className="mt-2 flex items-center gap-2 bg-[#EEF7F2] rounded-xl px-3 py-2">
                   <CheckCircle2 size={14} className="text-[#1A7A4A]" />
-                  <span className="text-[12px] font-semibold text-[#1A7A4A]">Photo captured successfully</span>
+                  <span className="text-[12px] font-semibold text-[#1A7A4A]">
+                    Photo captured successfully
+                  </span>
                 </div>
               )}
             </div>
@@ -280,7 +307,6 @@ export default function CreateSalesAttendance({
             {/* Post-capture form */}
             {capturedImage && (
               <>
-
                 {/* Client Type toggle */}
                 <div>
                   <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-2">
@@ -306,16 +332,27 @@ export default function CreateSalesAttendance({
                               : "bg-white border-gray-200 hover:border-gray-300",
                           ].join(" ")}
                         >
-                          {isNew
-                            ? <UserPlus size={20} className={isSelected ? "text-[#185FA5]" : "text-gray-400"} />
-                            : <Users size={20} className={isSelected ? "text-[#1A7A4A]" : "text-gray-400"} />
-                          }
-                          <span className={[
-                            "text-[13px] font-semibold",
-                            isSelected
-                              ? isNew ? "text-[#185FA5]" : "text-[#1A7A4A]"
-                              : "text-gray-700",
-                          ].join(" ")}>
+                          {isNew ? (
+                            <UserPlus
+                              size={20}
+                              className={isSelected ? "text-[#185FA5]" : "text-gray-400"}
+                            />
+                          ) : (
+                            <Users
+                              size={20}
+                              className={isSelected ? "text-[#1A7A4A]" : "text-gray-400"}
+                            />
+                          )}
+                          <span
+                            className={[
+                              "text-[13px] font-semibold",
+                              isSelected
+                                ? isNew
+                                  ? "text-[#185FA5]"
+                                  : "text-[#1A7A4A]"
+                                : "text-gray-700",
+                            ].join(" ")}
+                          >
                             {t}
                           </span>
                         </button>
@@ -349,7 +386,7 @@ export default function CreateSalesAttendance({
                         <span className="text-[12px] text-[#CC1318]">{accountsError}</span>
                       </div>
                     ) : (
-                      <div className="rounded-2xl overflow-hidden border border-gray-200 bg-white">
+                      <div className="rounded-2xl border border-gray-200 bg-white">
                         <Select
                           options={siteVisitAccounts.map((a) => ({
                             value: a.company_name,
@@ -357,13 +394,23 @@ export default function CreateSalesAttendance({
                           }))}
                           value={
                             formData.SiteVisitAccount
-                              ? { value: formData.SiteVisitAccount, label: formData.SiteVisitAccount }
+                              ? {
+                                  value: formData.SiteVisitAccount,
+                                  label: formData.SiteVisitAccount,
+                                }
                               : null
                           }
                           onChange={(s) => onChangeAction("SiteVisitAccount", s?.value || "")}
                           placeholder="Search company..."
                           classNamePrefix="mb-select"
+                          menuPortalTarget={
+                            typeof document !== "undefined" ? document.body : null
+                          }
+                          menuPosition="fixed"
+                          onMenuOpen={() => setSelectMenuOpen(true)}
+                          onMenuClose={() => setSelectMenuOpen(false)}
                           styles={{
+                            menuPortal: (base) => ({ ...base, zIndex: 9999 }),
                             control: (base) => ({
                               ...base,
                               border: "none",
@@ -372,6 +419,7 @@ export default function CreateSalesAttendance({
                               padding: "4px 6px",
                               fontSize: "13px",
                               backgroundColor: "transparent",
+                              cursor: "pointer",
                             }),
                             menu: (base) => ({
                               ...base,
@@ -390,9 +438,18 @@ export default function CreateSalesAttendance({
                                 : "white",
                               color: state.isSelected ? "white" : "#1A0A0B",
                               padding: "10px 16px",
+                              cursor: "pointer",
                             }),
-                            placeholder: (base) => ({ ...base, color: "#A89898", fontSize: "13px" }),
-                            singleValue: (base) => ({ ...base, color: "#1A0A0B", fontWeight: 600 }),
+                            placeholder: (base) => ({
+                              ...base,
+                              color: "#A89898",
+                              fontSize: "13px",
+                            }),
+                            singleValue: (base) => ({
+                              ...base,
+                              color: "#1A0A0B",
+                              fontWeight: 600,
+                            }),
                           }}
                         />
                       </div>

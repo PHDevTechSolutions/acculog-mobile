@@ -25,44 +25,51 @@ export default async function addActivityLog(
       SiteVisitAccount,
     } = req.body ?? {};
 
-    // ── Validation ──────────────────────────────────────────────────────────
+    /* ── Validation ───────────────────────── */
     if (
       !ReferenceID || typeof ReferenceID !== "string" ||
       !Email       || typeof Email !== "string" ||
       !Type        || typeof Type !== "string" ||
       !Status      || typeof Status !== "string"
     ) {
-      return res.status(400).json({ error: "Missing or invalid required fields: ReferenceID, Email, Type, Status" });
+      return res.status(400).json({
+        error: "Missing or invalid required fields: ReferenceID, Email, Type, Status",
+      });
     }
 
     const validStatuses = ["Login", "Logout"];
     if (!validStatuses.includes(Status)) {
-      return res.status(400).json({ error: `Invalid Status. Must be one of: ${validStatuses.join(", ")}` });
+      return res.status(400).json({
+        error: `Invalid Status. Must be one of: ${validStatuses.join(", ")}`,
+      });
     }
 
-    // ── DB connection ────────────────────────────────────────────────────────
+    /* ── DB connection ───────────────────── */
     let db;
     try {
       db = await connectToDatabase();
     } catch (dbErr) {
       console.error("DB connection error:", dbErr);
-      return res.status(503).json({ error: "Database connection failed. Please try again." });
+      return res.status(503).json({
+        error: "Database connection failed. Please try again.",
+      });
     }
 
     const collection = db.collection("TaskLog");
 
-    // ── Day window (8:00 AM → next 8:00 AM) ────────────────────────────────
+    /* ── Day window (8AM → 8AM) ─────────── */
     const now = new Date();
     const startOfDay = new Date(now);
     startOfDay.setHours(8, 0, 0, 0);
     if (now < startOfDay) {
       startOfDay.setDate(startOfDay.getDate() - 1);
     }
+
     const endOfDay = new Date(startOfDay);
     endOfDay.setDate(endOfDay.getDate() + 1);
     endOfDay.setMilliseconds(-1);
 
-    // ── Duplicate check ─────────────────────────────────────────────────────
+    /* ── Duplicate check (KEEP THIS) ───── */
     const lastActivityToday = await collection.findOne(
       {
         ReferenceID,
@@ -80,35 +87,7 @@ export default async function addActivityLog(
       });
     }
 
-    // ── Login daily limit ────────────────────────────────────────────────────
-    if (Status === "Login") {
-      const loginCount = await collection.countDocuments({
-        ReferenceID,
-        Status: "Login",
-        date_created: { $gte: startOfDay, $lte: endOfDay },
-      });
-      if (loginCount >= 20) {
-        return res.status(403).json({
-          error: "Daily Login limit of 20 reached. Resets at 8:00 AM.",
-        });
-      }
-    }
-
-    // ── Site Visit daily limit ───────────────────────────────────────────────
-    if (Type === "Site Visit") {
-      const siteVisitCount = await collection.countDocuments({
-        ReferenceID,
-        Type: "Site Visit",
-        date_created: { $gte: startOfDay, $lte: endOfDay },
-      });
-      if (siteVisitCount >= 20) {
-        return res.status(403).json({
-          error: "Daily Site Visit limit of 20 reached. Resets at 8:00 AM.",
-        });
-      }
-    }
-
-    // ── Build document ───────────────────────────────────────────────────────
+    /* ── Build document ─────────────────── */
     const newLog: Record<string, unknown> = {
       ReferenceID: ReferenceID.trim(),
       Email: Email.trim(),
@@ -134,7 +113,7 @@ export default async function addActivityLog(
     if (typeof SiteVisitAccount === "string" && SiteVisitAccount.trim())
       newLog.SiteVisitAccount = SiteVisitAccount.trim();
 
-    // ── Insert ────────────────────────────────────────────────────────────────
+    /* ── Insert ─────────────────────────── */
     const result = await collection.insertOne(newLog);
 
     if (!result.acknowledged) {
@@ -145,8 +124,11 @@ export default async function addActivityLog(
       message: `${Status} recorded successfully`,
       id: result.insertedId.toString(),
     });
+
   } catch (error) {
     console.error("Error adding activity log:", error);
-    return res.status(500).json({ error: "Failed to add activity log. Please try again." });
+    return res.status(500).json({
+      error: "Failed to add activity log. Please try again.",
+    });
   }
 }

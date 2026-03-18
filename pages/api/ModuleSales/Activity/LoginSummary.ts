@@ -1,6 +1,10 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import { connectToDatabase } from "@/lib/MongoDB";
 
+/* ── Simple in-memory cache (per server instance) ── */
+const cache = new Map<string, { data: any; ts: number }>();
+const CACHE_TTL = 5000; // 5 seconds
+
 export default async function loginSummary(
   req: NextApiRequest,
   res: NextApiResponse
@@ -17,58 +21,63 @@ export default async function loginSummary(
       return res.status(400).json({ error: "referenceId query param is required" });
     }
 
+    const ref = referenceId.trim();
+
+    /* ── CACHE CHECK ── */
+    const cached = cache.get(ref);
+    if (cached && Date.now() - cached.ts < CACHE_TTL) {
+      return res.status(200).json(cached.data);
+    }
+
+    /* ── DB ── */
     let db;
     try {
       db = await connectToDatabase();
     } catch (dbErr) {
       console.error("DB connection error:", dbErr);
-      return res.status(503).json({ error: "Database connection failed. Please try again." });
+      return res.status(503).json({
+        error: "Database connection failed. Please try again.",
+      });
     }
 
     const collection = db.collection("TaskLog");
 
-    // ── Manila time day window (UTC+8) ────────────────────────────────────────
-    const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
-    const nowUTC = Date.now();
+    /* ── Manila Time (UTC+8) ── */
+    const offset = 8 * 60 * 60 * 1000;
+    const now = new Date(Date.now() + offset);
 
-    // Current time in Manila
-    const manilaMs = nowUTC + MANILA_OFFSET_MS;
-    const manilaDate = new Date(manilaMs);
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
 
-    // Midnight Manila today → convert back to UTC for query
-    const manilaStartOfDay = new Date(manilaDate);
-    manilaStartOfDay.setHours(0, 0, 0, 0);
-    const startUTC = new Date(manilaStartOfDay.getTime() - MANILA_OFFSET_MS);
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
 
-    // 23:59:59.999 Manila today → convert back to UTC
-    const manilaEndOfDay = new Date(manilaDate);
-    manilaEndOfDay.setHours(23, 59, 59, 999);
-    const endUTC = new Date(manilaEndOfDay.getTime() - MANILA_OFFSET_MS);
+    const startUTC = new Date(start.getTime() - offset);
+    const endUTC = new Date(end.getTime() - offset);
 
-    const dateFilter = { $gte: startUTC, $lte: endUTC };
-    const ref = referenceId.trim();
-
-    // Run last-activity lookup and login count in parallel
-    const [last, loginCount] = await Promise.all([
-      collection.findOne(
-        { ReferenceID: ref, date_created: dateFilter },
-        {
-          sort: { date_created: -1 },
-          projection: { Status: 1, date_created: 1 },
-        }
-      ),
-      collection.countDocuments({
+    /* ── SINGLE QUERY ONLY ── */
+    const last = await collection.findOne(
+      {
         ReferenceID: ref,
-        Status: "Login",
-        date_created: dateFilter,
-      }),
-    ]);
+        date_created: { $gte: startUTC, $lte: endUTC },
+      },
+      {
+        sort: { date_created: -1 },
+        projection: { Status: 1, date_created: 1 },
+      }
+    );
 
-    return res.status(200).json({
-      lastStatus: last?.Status       ?? null,
-      lastTime:   last?.date_created ?? null,
-      loginCount,
-    });
+    const response = {
+      lastStatus: last?.Status ?? null,
+      lastTime: last?.date_created ?? null,
+      // ❌ removed loginCount (heavy)
+    };
+
+    /* ── SAVE TO CACHE ── */
+    cache.set(ref, { data: response, ts: Date.now() });
+
+    return res.status(200).json(response);
+
   } catch (error) {
     console.error("Error fetching login summary:", error);
     return res.status(500).json({ error: "Failed to fetch login summary" });
