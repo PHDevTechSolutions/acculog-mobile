@@ -70,6 +70,7 @@ export default function CreateSalesAttendance({
 
   const [lastStatus, setLastStatus] = useState<string | null>(null);
   const [loginCountToday, setLoginCountToday] = useState<number>(0);
+  const [loadingStatus, setLoadingStatus] = useState(true);
   const [clientType, setClientType] = useState<"New Client" | "Existing Client" | "">("");
 
   const [selectMenuOpen, setSelectMenuOpen] = useState(false);
@@ -79,6 +80,7 @@ export default function CreateSalesAttendance({
     if (!open) return;
     setClientType("");
     setShowMap(false);
+    setCapturedImage(null);
   }, [open]);
 
   /* ── Geolocation ── */
@@ -94,29 +96,56 @@ export default function CreateSalesAttendance({
           `https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.latitude}&lon=${coords.longitude}`
         )
           .then((r) => r.json())
-          .then((d) => setLocationAddress(d.display_name || "Location detected"));
+          .then((d) => setLocationAddress(d.display_name || "Location detected"))
+          .catch(() => setLocationAddress("Location detected"));
       },
       () => setLocationAddress("Location not allowed"),
       { enableHighAccuracy: true }
     );
-    return () => setCapturedImage(null);
   }, [open]);
 
-  /* ── Login Summary — fetch ONCE when dialog opens, no polling ── */
+  /* ── Login Summary — fetch ONCE when dialog opens ── */
+  /* ── Login Summary — fetch ONCE when dialog opens ── */
   useEffect(() => {
-    if (!open) return;
-    fetch(`/api/ModuleSales/Activity/LoginSummary?referenceId=${userDetails.ReferenceID}`)
+    if (!open || !userDetails.ReferenceID) {
+      setLoadingStatus(true);
+      return;
+    }
+
+    setLoadingStatus(true);
+    fetch(`/api/ModuleSales/Activity/LastStatus?referenceId=${userDetails.ReferenceID}`)
       .then((res) => {
-        if (!res.ok) return;
+        if (!res.ok) throw new Error("Failed to fetch status");
         return res.json();
       })
       .then((data) => {
-        if (!data) return;
-        setLastStatus(data.lastStatus);
-        setLoginCountToday(data.loginCount);
-        onChangeAction("Status", data.lastStatus === "Login" ? "Logout" : "Login");
-      });
-  }, [open, userDetails.ReferenceID, onChangeAction]);
+        if (!data) {
+          // No activity today — first action is Login
+          setLastStatus(null);
+          onChangeAction("Status", "Login");
+          setLoginCountToday(0);
+          return;
+        }
+
+        // API returns { Status, date_created }
+        const status = data.Status ?? null;
+        setLastStatus(status);
+
+        const nextAction = status === "Login" ? "Logout" : "Login";
+        onChangeAction("Status", nextAction);
+      })
+      .catch((err) => {
+        console.error("Error fetching last status:", err);
+        setLastStatus(null);
+        onChangeAction("Status", "Login");
+        setLoginCountToday(0);
+      })
+      .finally(() => setLoadingStatus(false));
+
+    // ⚠️ onChangeAction intentionally excluded — it's a prop function that
+    // changes reference every render and would cause an infinite fetch loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, userDetails.ReferenceID]);
 
   /* ── Fetch accounts when Existing Client selected ── */
   useEffect(() => {
@@ -177,6 +206,8 @@ export default function CreateSalesAttendance({
   /* ── Submit ── */
   const handleCreate = async () => {
     if (!capturedImage) return toast.error("Capture photo first.");
+    if (!formData.Status) return toast.error("Status not determined.");
+
     setLoading(true);
     try {
       const photoURL = await uploadToCloudinary(capturedImage);
@@ -193,7 +224,7 @@ export default function CreateSalesAttendance({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw new Error("Failed to save attendance");
       toast.success("Attendance created!");
       fetchAccountAction();
       setFormAction({
@@ -208,19 +239,22 @@ export default function CreateSalesAttendance({
       });
       setCapturedImage(null);
       onOpenChangeAction(false);
-    } catch {
+    } catch (err) {
+      console.error("Attendance creation error:", err);
       toast.error("Error saving attendance.");
     } finally {
       setLoading(false);
     }
   };
 
+  // Determine UI state
   const isLogout = lastStatus === "Login";
-  const nextAction = isLogout ? "Logout" : "Login";
+  const nextAction = formData.Status; // Use the Status from formData which we set in useEffect
   const isSubmitDisabled =
     loading ||
     !capturedImage ||
     !clientType ||
+    loadingStatus ||
     (clientType === "Existing Client" && !formData.SiteVisitAccount);
 
   /* ── Render ── */
@@ -262,19 +296,25 @@ export default function CreateSalesAttendance({
           <div className="flex items-center gap-3">
             <div className="flex-1 bg-white/15 rounded-2xl px-4 py-2.5 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div
-                  className={`w-2 h-2 rounded-full ${
-                    isLogout ? "bg-red-300" : "bg-green-300"
-                  } animate-pulse`}
-                />
+                {loadingStatus ? (
+                  <div className="w-2 h-2 rounded-full bg-yellow-300 animate-pulse" />
+                ) : (
+                  <div
+                    className={`w-2 h-2 rounded-full ${isLogout ? "bg-red-300" : "bg-green-300"
+                      } animate-pulse`}
+                  />
+                )}
                 <span className="text-white/75 text-[11px] font-medium">Next action</span>
               </div>
               <span
-                className={`text-[12px] font-bold ${
-                  isLogout ? "text-red-200" : "text-green-200"
-                }`}
+                className={`text-[12px] font-bold ${loadingStatus
+                    ? "text-yellow-200"
+                    : isLogout
+                      ? "text-red-200"
+                      : "text-green-200"
+                  }`}
               >
-                {nextAction}
+                {loadingStatus ? "Loading..." : nextAction || "—"}
               </span>
             </div>
             <div className="bg-white/15 rounded-2xl px-4 py-2.5 text-center">
@@ -305,7 +345,7 @@ export default function CreateSalesAttendance({
             </div>
 
             {/* Post-capture form */}
-            {capturedImage && (
+            {capturedImage && !loadingStatus && (
               <>
                 {/* Client Type toggle */}
                 <div>
@@ -395,9 +435,9 @@ export default function CreateSalesAttendance({
                           value={
                             formData.SiteVisitAccount
                               ? {
-                                  value: formData.SiteVisitAccount,
-                                  label: formData.SiteVisitAccount,
-                                }
+                                value: formData.SiteVisitAccount,
+                                label: formData.SiteVisitAccount,
+                              }
                               : null
                           }
                           onChange={(s) => onChangeAction("SiteVisitAccount", s?.value || "")}
@@ -434,8 +474,8 @@ export default function CreateSalesAttendance({
                               backgroundColor: state.isSelected
                                 ? "#CC1318"
                                 : state.isFocused
-                                ? "#FFF0F0"
-                                : "white",
+                                  ? "#FFF0F0"
+                                  : "white",
                               color: state.isSelected ? "white" : "#1A0A0B",
                               padding: "10px 16px",
                               cursor: "pointer",
@@ -517,8 +557,8 @@ export default function CreateSalesAttendance({
                     isSubmitDisabled
                       ? "bg-gray-100 text-gray-300 cursor-not-allowed"
                       : isLogout
-                      ? "bg-[#CC1318] text-white hover:bg-[#A8100F] active:scale-[0.98] shadow-lg shadow-red-200"
-                      : "bg-[#1A7A4A] text-white hover:bg-[#155f38] active:scale-[0.98] shadow-lg shadow-green-200",
+                        ? "bg-[#CC1318] text-white hover:bg-[#A8100F] active:scale-[0.98] shadow-lg shadow-red-200"
+                        : "bg-[#1A7A4A] text-white hover:bg-[#155f38] active:scale-[0.98] shadow-lg shadow-green-200",
                   ].join(" ")}
                 >
                   {loading ? (
@@ -543,6 +583,13 @@ export default function CreateSalesAttendance({
                   Submission will be recorded with timestamp & GPS location
                 </p>
               </>
+            )}
+
+            {loadingStatus && capturedImage && (
+              <div className="flex flex-col items-center justify-center py-12 gap-3">
+                <div className="w-8 h-8 border-3 border-[#CC1318]/20 border-t-[#CC1318] rounded-full animate-spin" />
+                <p className="text-[13px] text-gray-500">Determining login status...</p>
+              </div>
             )}
           </div>
         </div>
