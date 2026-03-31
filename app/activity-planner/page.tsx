@@ -444,7 +444,7 @@ function CalendarTab({ currentMonth, calendarDays, groupedByDate, usersMap, mont
   const presentRate = monthlyStats.total > 0 ? Math.round((monthlyStats.present / monthlyStats.total) * 100) : 0;
 
   return (
-    <div className="flex flex-col min-h-full">
+    <div className="flex flex-col h-full overflow-hidden">
       <div className="px-5 pt-12 pb-5 flex-shrink-0" style={{ background: "linear-gradient(145deg,#CC1318 0%,#8B0E12 100%)" }}>
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -465,8 +465,8 @@ function CalendarTab({ currentMonth, calendarDays, groupedByDate, usersMap, mont
           ))}
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto pb-28">
-        <div className="bg-white mx-4 mt-4 rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
+      <div className="flex-1 overflow-y-auto pt-4 pb-28">
+        <div className="bg-white mx-4 rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
           <div className="grid grid-cols-7 border-b border-gray-100">
             {DAY_NAMES.map((d, i) => <div key={i} className="text-center py-2.5 text-[10px] font-semibold text-gray-400 uppercase">{d}</div>)}
           </div>
