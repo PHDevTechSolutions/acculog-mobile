@@ -24,6 +24,7 @@ interface UserDetails {
   ReferenceID: string;
   Email: string;
   TSM: string;
+  faceDescriptors?: number[][];
 }
 
 interface CreateAttendanceProps {
@@ -51,6 +52,7 @@ export default function CreateAttendance({
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [faceData, setFaceData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [lastStatus, setLastStatus] = useState<"Login" | "Logout" | null>(null);
   const [lastTime, setLastTime] = useState<string | null>(null);
@@ -153,7 +155,14 @@ export default function CreateAttendance({
     setLoading(true);
     try {
       const photoURL = await uploadToCloudinary(capturedImage);
-      const payload = { ...formData, PhotoURL: photoURL, Location: locationAddress, Latitude: latitude, Longitude: longitude };
+      const payload = { 
+        ...formData, 
+        PhotoURL: photoURL, 
+        Location: locationAddress, 
+        Latitude: latitude, 
+        Longitude: longitude,
+        FaceData: faceData 
+      };
       const response = await fetch("/api/ModuleSales/Activity/AddLog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Failed to create attendance");
@@ -221,7 +230,13 @@ export default function CreateAttendance({
             {/* Camera */}
             <div>
               <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-2">Photo Verification</p>
-              <Camera onCaptureAction={(img) => setCapturedImage(img)} />
+              <Camera 
+                registeredDescriptors={userDetails.faceDescriptors}
+                onCaptureAction={(img, face) => {
+                  setCapturedImage(img);
+                  setFaceData(face);
+                }} 
+              />
               {capturedImage && (
                 <div className="mt-2 flex items-center gap-2 bg-[#EEF7F2] rounded-xl px-3 py-2">
                   <CheckCircle2 size={14} className="text-[#1A7A4A]" />

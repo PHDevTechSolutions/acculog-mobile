@@ -9,6 +9,8 @@ import { FormatProvider } from "@/contexts/FormatContext";
 import ActivityDialog from "@/components/dashboard-dialog";
 import CreateAttendance from "@/components/CreateAttendance";
 import CreateSalesAttendance from "@/components/CreateSalesAttenance";
+import Camera from "@/components/camera";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import ProtectedPageWrapper from "@/components/protected-page-wrapper";
 import { AnimatePresence, motion, useInView } from "framer-motion";
 import { toast } from "sonner";
@@ -104,6 +106,7 @@ interface UserInfo {
   Firstname: string;
   Lastname: string;
   profilePicture?: string;
+  faceDescriptors?: number[][];
   TSM: string;
   Directories: string[];
 }
@@ -118,6 +121,7 @@ interface UserDetails {
   Company?: string;
   ReferenceID: string;
   profilePicture?: string;
+  faceDescriptors?: number[][];
   TSM: string;
   Directories?: string[];
 }
@@ -650,10 +654,12 @@ function ProfileTab({
   userDetails,
   userId,
   onLogout,
+  onFaceRegister,
 }: {
   userDetails: UserDetails | null;
   userId: string | null | undefined;
   onLogout: () => void;
+  onFaceRegister: () => void;
 }) {
   const initials = userDetails
     ? `${userDetails.Firstname[0] ?? ""}${userDetails.Lastname[0] ?? ""}`.toUpperCase()
@@ -665,6 +671,7 @@ function ProfileTab({
     { label: "Department", value: userDetails.Department },
     { label: "Company", value: userDetails.Company ?? "—" },
     { label: "Reference ID", value: userDetails.ReferenceID },
+    { label: "Biometrics", value: userDetails.faceDescriptors ? "Registered" : "Not Registered" },
   ] : [];
 
   return (
@@ -693,14 +700,32 @@ function ProfileTab({
           {fields.map((f, i) => (
             <div key={f.label} className={`flex items-center justify-between px-4 py-3.5 ${i < fields.length - 1 ? "border-b border-gray-50" : ""}`}>
               <span className="text-[12px] font-semibold text-gray-400">{f.label}</span>
-              <span className="text-[13px] font-medium text-gray-800 text-right max-w-[60%] truncate">{f.value}</span>
+              <span className={`text-[13px] font-medium text-right max-w-[60%] truncate ${f.label === "Biometrics" && f.value === "Not Registered" ? "text-red-500" : "text-gray-800"}`}>{f.value}</span>
             </div>
           ))}
         </div>
 
         {/* Quick Links */}
-        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Quick Links</p>
-        <TimesheetNavCard userId={userId} />
+        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Settings & Security</p>
+        <div className="flex flex-col gap-3 mb-5">
+          <button
+            onClick={onFaceRegister}
+            className="w-full flex items-center gap-4 bg-white rounded-2xl border border-gray-100 px-4 py-4 text-left hover:border-[#CC1318]/30 hover:bg-[#FFF8F8] active:scale-[0.98] transition-all group shadow-sm"
+          >
+            <div className="w-11 h-11 rounded-[14px] bg-[#FEF0F0] flex items-center justify-center flex-shrink-0 group-hover:bg-[#CC1318] transition-colors">
+              <User size={20} className="text-[#CC1318] group-hover:text-white transition-colors" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-semibold text-gray-800">Face Registration</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">{userDetails?.faceDescriptors ? "Update your biometric data" : "Register your face for verification"}</p>
+            </div>
+            <div className="w-7 h-7 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0 group-hover:bg-[#CC1318] transition-colors">
+              <ArrowRight size={13} className="text-gray-400 group-hover:text-white transition-colors" />
+            </div>
+          </button>
+          
+          <TimesheetNavCard userId={userId} />
+        </div>
 
         {/* ── Logout ── */}
         <div className="mt-4">
@@ -746,6 +771,7 @@ function ActivityPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [createAttendanceOpen, setCreateAttendanceOpen] = useState(false);
   const [createSalesAttendanceOpen, setCreateSalesAttendanceOpen] = useState(false);
+  const [faceRegisterOpen, setFaceRegisterOpen] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
 
   const [formData, setFormData] = useState<FormData>({
@@ -776,7 +802,8 @@ function ActivityPage() {
           UserId: data._id ?? "", Firstname: data.Firstname ?? "", Lastname: data.Lastname ?? "",
           Email: data.Email ?? "", Role: data.Role ?? "", Department: data.Department ?? "",
           Company: data.Company ?? "", ReferenceID: data.ReferenceID ?? "",
-          profilePicture: data.profilePicture ?? "", TSM: data.TSM ?? "",
+          profilePicture: data.profilePicture ?? "", faceDescriptors: data.faceDescriptors ?? null,
+          TSM: data.TSM ?? "",
           Directories: data.Directories ?? [],
         });
         setError(null);
@@ -895,6 +922,27 @@ function ActivityPage() {
     { id: "profile" as const, icon: User, label: "Profile" },
   ];
 
+  const handleFaceRegister = async (descriptors: number[][]) => {
+    if (!userId) return;
+    try {
+      const res = await fetch("/api/profile-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, faceDescriptors: descriptors }),
+      });
+      if (!res.ok) throw new Error("Failed to register face");
+      toast.success("Biometrics registered successfully!");
+      setFaceRegisterOpen(false);
+      // Refresh user details
+      const userRes = await fetch(`/api/user?id=${encodeURIComponent(userId)}`);
+      const userData = await userRes.json();
+      setUserDetails(prev => prev ? { ...prev, faceDescriptors: userData.faceDescriptors } : null);
+    } catch (err) {
+      console.error(err);
+      toast.error("Error saving face data.");
+    }
+  };
+
   const renderActiveTab = () => {
     switch (activeTab) {
       case "home":
@@ -904,7 +952,7 @@ function ActivityPage() {
       case "reports":
         return <ReportsTab monthlyStats={monthlyStats} allLogs={allVisibleAccounts} userId={userId} />;
       case "profile":
-        return <ProfileTab userDetails={userDetails} userId={userId} onLogout={handleLogout} />;
+        return <ProfileTab userDetails={userDetails} userId={userId} onLogout={handleLogout} onFaceRegister={() => setFaceRegisterOpen(true)} />;
       default:
         return null;
     }
@@ -1006,8 +1054,66 @@ function ActivityPage() {
       </div>
 
       {/* Dialogs */}
-      <CreateAttendance open={createAttendanceOpen} onOpenChangeAction={setCreateAttendanceOpen} formData={formData} onChangeAction={onChangeAction} userDetails={{ ReferenceID: userDetails?.ReferenceID ?? "", Email: userDetails?.Email ?? "", TSM: userDetails?.TSM ?? "" }} fetchAccountAction={fetchAccountAction} setFormAction={setFormData} />
-      <CreateSalesAttendance open={createSalesAttendanceOpen} onOpenChangeAction={setCreateSalesAttendanceOpen} formData={formData} onChangeAction={onChangeAction} userDetails={{ ReferenceID: userDetails?.ReferenceID ?? "", Email: userDetails?.Email ?? "", TSM: userDetails?.TSM ?? "", Role: userDetails?.Role ?? "" }} fetchAccountAction={fetchAccountAction} setFormAction={setFormData} />
+      <CreateAttendance 
+        open={createAttendanceOpen} 
+        onOpenChangeAction={setCreateAttendanceOpen} 
+        formData={formData} 
+        onChangeAction={onChangeAction} 
+        userDetails={{ 
+          ReferenceID: userDetails?.ReferenceID ?? "", 
+          Email: userDetails?.Email ?? "", 
+          TSM: userDetails?.TSM ?? "",
+          faceDescriptors: userDetails?.faceDescriptors
+        } as any} 
+        fetchAccountAction={fetchAccountAction} 
+        setFormAction={setFormData} 
+      />
+      <CreateSalesAttendance 
+        open={createSalesAttendanceOpen} 
+        onOpenChangeAction={setCreateSalesAttendanceOpen} 
+        formData={formData} 
+        onChangeAction={onChangeAction} 
+        userDetails={{ 
+          ReferenceID: userDetails?.ReferenceID ?? "", 
+          Email: userDetails?.Email ?? "", 
+          TSM: userDetails?.TSM ?? "", 
+          Role: userDetails?.Role ?? "",
+          faceDescriptors: userDetails?.faceDescriptors
+        } as any} 
+        fetchAccountAction={fetchAccountAction} 
+        setFormAction={setFormData} 
+      />
+
+      {/* ── Face Registration Dialog ── */}
+      <Dialog open={faceRegisterOpen} onOpenChange={setFaceRegisterOpen}>
+        <DialogContent className="p-0 rounded-[28px] max-w-sm w-full mx-auto overflow-hidden border-0 shadow-2xl max-h-[92vh] flex flex-col">
+          <div className="bg-[#CC1318] px-6 pt-5 pb-6 flex-shrink-0">
+            <div className="flex items-center gap-3 mb-2">
+              <button
+                onClick={() => setFaceRegisterOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white hover:bg-white/30 transition-colors"
+              >
+                <X size={15} />
+              </button>
+              <div className="flex-1">
+                <h2 className="text-white font-semibold text-base leading-tight">Face Registration</h2>
+                <p className="text-white/65 text-[11px] mt-0.5">Biometric Setup</p>
+              </div>
+            </div>
+          </div>
+          <div className="p-5 bg-[#F9F6F4]">
+            <p className="text-[13px] text-gray-600 mb-4 leading-relaxed">
+              Please look at the camera and take 3 clear photos of your face from different angles to complete the registration.
+            </p>
+            <Camera 
+              mode="register" 
+              onRegisterAction={handleFaceRegister}
+              onCaptureAction={() => {}} 
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <ActivityDialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setSelectedEvent(null); }} selectedEvent={selectedEvent} usersMap={usersMap} />
     </div>
   );

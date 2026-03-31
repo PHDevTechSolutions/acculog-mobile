@@ -23,6 +23,7 @@ export default async function addActivityLog(
       Remarks,
       TSM,
       SiteVisitAccount,
+      FaceData,
     } = req.body ?? {};
 
     /* ── Validation ───────────────────────── */
@@ -112,6 +113,9 @@ export default async function addActivityLog(
 
     if (typeof SiteVisitAccount === "string" && SiteVisitAccount.trim())
       newLog.SiteVisitAccount = SiteVisitAccount.trim();
+
+    if (FaceData && typeof FaceData === "object")
+      newLog.FaceData = FaceData;
 
     /* ── Insert ─────────────────────────── */
     const result = await collection.insertOne(newLog);

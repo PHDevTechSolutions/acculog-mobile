@@ -31,6 +31,7 @@ interface UserDetails {
   TSM: string;
   Email: string;
   Role: string;
+  faceDescriptors?: number[][];
 }
 
 interface CreateAttendanceProps {
@@ -60,6 +61,7 @@ export default function CreateSalesAttendance({
   const [manualLat, setManualLat] = useState<number | null>(null);
   const [manualLng, setManualLng] = useState<number | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [faceData, setFaceData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [showMap, setShowMap] = useState(false);
 
@@ -251,6 +253,7 @@ export default function CreateSalesAttendance({
         Location: locationAddress,
         Latitude: manualLat ?? latitude,
         Longitude: manualLng ?? longitude,
+        FaceData: faceData,
       };
       const res = await fetch("/api/ModuleSales/Activity/AddLog", {
         method: "POST",
@@ -368,7 +371,13 @@ export default function CreateSalesAttendance({
               <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-2">
                 📷 Photo Verification
               </p>
-              <Camera onCaptureAction={(img) => setCapturedImage(img)} />
+              <Camera 
+                registeredDescriptors={userDetails.faceDescriptors}
+                onCaptureAction={(img, face) => {
+                  setCapturedImage(img);
+                  setFaceData(face);
+                }} 
+              />
               {capturedImage && (
                 <div className="mt-2 flex items-center gap-2 bg-[#EEF7F2] rounded-xl px-3 py-2">
                   <CheckCircle2 size={14} className="text-[#1A7A4A]" />

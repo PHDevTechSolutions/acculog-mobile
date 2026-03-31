@@ -11,6 +11,7 @@ export default async function updateProfile(req: NextApiRequest, res: NextApiRes
 
   const {
     id,
+    userId, // fallback if id is not sent
     Firstname,
     Lastname,
     Email,
@@ -19,10 +20,13 @@ export default async function updateProfile(req: NextApiRequest, res: NextApiRes
     Status,
     ContactNumber,
     Password,
-    profilePicture, // bagong field dito
+    profilePicture, 
+    faceDescriptors, // bagong field para sa biometric registration
   } = req.body;
 
-  if (!id) {
+  const targetId = id || userId;
+
+  if (!targetId) {
     return res.status(400).json({ error: "User ID is required" });
   }
 
@@ -31,19 +35,18 @@ export default async function updateProfile(req: NextApiRequest, res: NextApiRes
     const userCollection = db.collection("users");
 
     const updatedUser: any = {
-      Firstname,
-      Lastname,
-      Email,
-      Role,
-      Department,
-      Status,
-      ContactNumber,
       updatedAt: new Date(),
     };
 
-    if (profilePicture) {
-      updatedUser.profilePicture = profilePicture; // i-save ang url dito
-    }
+    if (Firstname) updatedUser.Firstname = Firstname;
+    if (Lastname) updatedUser.Lastname = Lastname;
+    if (Email) updatedUser.Email = Email;
+    if (Role) updatedUser.Role = Role;
+    if (Department) updatedUser.Department = Department;
+    if (Status) updatedUser.Status = Status;
+    if (ContactNumber) updatedUser.ContactNumber = ContactNumber;
+    if (profilePicture) updatedUser.profilePicture = profilePicture;
+    if (faceDescriptors) updatedUser.faceDescriptors = faceDescriptors;
 
     if (Password && Password.trim() !== "") {
       const hashedPassword = await bcrypt.hash(Password, 10);
@@ -51,7 +54,7 @@ export default async function updateProfile(req: NextApiRequest, res: NextApiRes
     }
 
     const result = await userCollection.updateOne(
-      { _id: new ObjectId(id) },
+      { _id: new ObjectId(targetId) },
       { $set: updatedUser }
     );
 
