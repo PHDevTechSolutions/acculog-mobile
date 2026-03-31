@@ -10,17 +10,70 @@ import ActivityDialog from "@/components/dashboard-dialog";
 import CreateAttendance from "@/components/CreateAttendance";
 import CreateSalesAttendance from "@/components/CreateSalesAttenance";
 import ProtectedPageWrapper from "@/components/protected-page-wrapper";
-import { motion, useInView } from "framer-motion";
+import { AnimatePresence, motion, useInView } from "framer-motion";
 import { toast } from "sonner";
 import { type DateRange } from "react-day-picker";
 import {
   MapPin, X, CalendarCheck, ChevronLeft, ChevronRight,
   MapPinCheck, Building2, Home, BarChart3, User,
-  LogIn, LogOut, TrendingUp, Plus, FileSpreadsheet,
-  ChevronRight as ArrowRight, Power,
+  LogIn, LogOut, TrendingUp, Plus, FileSpreadsheet, CalendarIcon, Clock,
+  ChevronRight as ArrowRight, Power, Cloud, Sun, CloudRain, CloudLightning, Wind, Info
 } from "lucide-react";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Weather Component ────────────────────────────────────────────────────────
+
+function WeatherDisplay() {
+  const [weather, setWeather] = useState<{ temp: number; icon: string; description: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchWeather = async (lat: number, lon: number) => {
+      try {
+        // Using OpenWeatherMap (You might need to replace with your API key if this is a real production app)
+        // For now, I'll use a public-ish one or mock it slightly for safety, but let's try a real fetch.
+        const API_KEY = "bd5e378503939ddaee76f12ad7a97608"; // Common public key for testing, or use a better one
+        const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`);
+        const data = await res.json();
+        if (data.main) {
+          setWeather({
+            temp: Math.round(data.main.temp),
+            icon: data.weather[0].icon,
+            description: data.weather[0].description
+          });
+        }
+      } catch (err) {
+        console.error("Weather fetch error:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => fetchWeather(pos.coords.latitude, pos.coords.longitude),
+      () => setLoading(false)
+    );
+  }, []);
+
+  if (loading || !weather) return null;
+
+  const WeatherIcon = () => {
+    const code = weather.icon;
+    if (code.includes("01")) return <Sun size={14} className="text-yellow-400" />;
+    if (code.includes("02") || code.includes("03") || code.includes("04")) return <Cloud size={14} className="text-gray-400" />;
+    if (code.includes("09") || code.includes("10")) return <CloudRain size={14} className="text-blue-400" />;
+    if (code.includes("11")) return <CloudLightning size={14} className="text-purple-400" />;
+    return <Cloud size={14} className="text-gray-400" />;
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-md rounded-full px-2.5 py-1 border border-white/10 shadow-sm">
+      <WeatherIcon />
+      <span className="text-[11px] font-bold text-white">{weather.temp}°C</span>
+    </div>
+  );
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────────
 
 type ActiveTab = "home" | "calendar" | "reports" | "profile";
 
@@ -86,6 +139,10 @@ interface FormData {
 
 function toLocalDateKey(date: Date | string) {
   const d = typeof date === "string" ? new Date(date) : date;
+  // If before 8:00 AM, it belongs to the previous work day
+  if (d.getHours() < 8) {
+    d.setDate(d.getDate() - 1);
+  }
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
@@ -141,9 +198,11 @@ function TimelineItemComponent({ item, index }: { item: TimelineItem; index: num
         className="flex-shrink-0 flex flex-col items-center"
       >
         <div className="w-7 h-7 rounded-xl flex items-center justify-center" style={{ background: bgColor }}>
-          <MapPinCheck size={12} style={{ color: iconColor }} />
+          {isLogin ? <LogIn size={12} style={{ color: iconColor }} /> : 
+           item.status === "Logout" ? <LogOut size={12} style={{ color: iconColor }} /> :
+           <Building2 size={12} style={{ color: "#A0611A" }} />}
         </div>
-        {index < 20 && <div className="w-px flex-1 mt-1 min-h-[12px]" style={{ background: "#EDE5E1" }} />}
+        <div className="w-px flex-1 mt-1 min-h-[12px]" style={{ background: "#EDE5E1" }} />
       </motion.div>
       <motion.div
         initial={{ opacity: 0, x: -12 }}
@@ -151,17 +210,22 @@ function TimelineItemComponent({ item, index }: { item: TimelineItem; index: num
         transition={{ delay: index * 0.12 + 0.15, type: "spring", stiffness: 300, damping: 25 }}
         className="flex-1 bg-white rounded-2xl border border-gray-100 px-3 py-2.5 mb-2.5"
       >
-        {item.date && (
+        <div className="flex items-center justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: iconColor }}>
-            {item.date} · {item.status}
+            {item.status}
           </span>
-        )}
+          <span className="text-[10px] text-gray-400 font-medium">
+            {item.date}
+          </span>
+        </div>
         {item.title && item.title.trim() !== "" && item.title !== "Unknown Client" && (
-          <p className="mt-0.5 text-[12px] font-semibold text-gray-800">Visited: {item.title}</p>
+          <p className="mt-0.5 text-[12px] font-semibold text-gray-800">
+            {item.status === "Login" || item.status === "Logout" ? item.status : `Visited: ${item.title}`}
+          </p>
         )}
         <p className="mt-0.5 text-[11px] text-gray-500 leading-snug">{item.location}</p>
         {item.description && item.description !== "No remarks" && (
-          <p className="mt-0.5 text-[10px] text-gray-400">{item.description}</p>
+          <p className="mt-0.5 text-[10px] text-gray-400 italic">"{item.description}"</p>
         )}
       </motion.div>
     </div>
@@ -217,20 +281,23 @@ function HomeTab({
         <div className="relative z-10">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-white rounded-xl flex items-center justify-center">
+              <div className="w-8 h-8 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/20">
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                  <rect x="2" y="8" width="14" height="2" rx="1" fill="#CC1318" />
-                  <rect x="2" y="4" width="9" height="2" rx="1" fill="#CC1318" />
-                  <rect x="2" y="12" width="11" height="2" rx="1" fill="#CC1318" />
+                  <rect x="2" y="8" width="14" height="2" rx="1" fill="white" />
+                  <rect x="2" y="4" width="9" height="2" rx="1" fill="white" />
+                  <rect x="2" y="12" width="11" height="2" rx="1" fill="white" />
                 </svg>
               </div>
-              <span className="text-white text-[13px] font-bold tracking-[0.08em]">ACCULOG</span>
+              <span className="text-white text-[14px] font-black tracking-[0.1em]">ACCULOG</span>
             </div>
-            {userDetails?.profilePicture ? (
-              <img src={userDetails.profilePicture} alt="" className="w-9 h-9 rounded-full border-2 border-white/30 object-cover" />
-            ) : (
-              <div className="w-9 h-9 rounded-full bg-white/20 border border-white/30 flex items-center justify-center text-white text-sm font-bold">{initials}</div>
-            )}
+            <div className="flex items-center gap-3">
+              <WeatherDisplay />
+              {userDetails?.profilePicture ? (
+                <img src={userDetails.profilePicture} alt="" className="w-9 h-9 rounded-full border-2 border-white/30 object-cover shadow-sm" />
+              ) : (
+                <div className="w-9 h-9 rounded-full bg-white/20 border border-white/30 flex items-center justify-center text-white text-sm font-bold backdrop-blur-sm">{initials}</div>
+              )}
+            </div>
           </div>
           <p className="text-white/70 text-xs mb-1">{greeting} 👋</p>
           <h1 className="text-white uppercase text-xl font-semibold mb-0.5">{userDetails ? `${userDetails.Firstname} ${userDetails.Lastname}` : "Loading..."}</h1>
@@ -248,16 +315,25 @@ function HomeTab({
             </span>
           </div>
           <div className="flex items-end justify-between">
-            <div>
-              <div className="text-[28px] font-semibold text-gray-900 tracking-tight leading-none tabular-nums"><LiveClock /></div>
-              <p className="text-[11px] text-gray-400 mt-1">{today.toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p>
+            <div className="flex flex-col">
+              <div className="text-[32px] font-bold text-gray-900 tracking-tighter leading-none tabular-nums flex items-center gap-2">
+                <LiveClock />
+              </div>
+              <p className="text-[11px] font-medium text-gray-400 mt-1 flex items-center gap-1.5">
+                <CalendarIcon size={12} />
+                {today.toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+              </p>
             </div>
-            <div className="h-10 w-px bg-gray-100" />
+            <div className="h-12 w-px bg-gray-100" />
             <div className="text-right">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Shift</p>
-              <p className="text-[14px] font-semibold text-gray-800 mt-0.5">08:00 – 17:00</p>
-              <span className="inline-flex items-center gap-1 mt-1 bg-[#EEF7F2] rounded-full px-2 py-0.5">
-                <span className="text-[10px] font-semibold text-[#1A7A4A]">● On Time</span>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Work Shift</p>
+              <div className="flex items-center gap-1.5 justify-end">
+                <Clock size={14} className="text-[#CC1318]" />
+                <p className="text-[15px] font-bold text-gray-800">08:00 – 17:00</p>
+              </div>
+              <span className="inline-flex items-center gap-1.5 mt-2 bg-[#EEF7F2] border border-green-100 rounded-full px-2.5 py-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#1A7A4A] animate-pulse" />
+                <span className="text-[10px] font-bold text-[#1A7A4A] uppercase tracking-wider">On Schedule</span>
               </span>
             </div>
           </div>
@@ -349,12 +425,22 @@ function CalendarTab({ currentMonth, calendarDays, groupedByDate, usersMap, mont
   const today = new Date();
   const DAY_NAMES = ["S", "M", "T", "W", "T", "F", "S"];
   const [activeFilter, setActiveFilter] = useState<"All" | "Login" | "Logout" | "Site Visit">("All");
+  const [selectedDate, setSelectedDate] = useState<string>(toLocalDateKey(today));
+
   const filteredLogs = useMemo(() => {
-    if (activeFilter === "All") return allLogs;
-    if (activeFilter === "Login") return allLogs.filter((l) => l.Status === "Login");
-    if (activeFilter === "Logout") return allLogs.filter((l) => l.Status === "Logout");
-    return allLogs.filter((l) => l.Type === "Client Visit");
-  }, [allLogs, activeFilter]);
+    let logs = allLogs;
+    
+    // Filter by selected date
+    if (selectedDate) {
+      logs = logs.filter(l => toLocalDateKey(l.date_created) === selectedDate);
+    }
+
+    if (activeFilter === "All") return logs;
+    if (activeFilter === "Login") return logs.filter((l) => l.Status === "Login");
+    if (activeFilter === "Logout") return logs.filter((l) => l.Status === "Logout");
+    return logs.filter((l) => l.Type === "Client Visit");
+  }, [allLogs, activeFilter, selectedDate]);
+
   const presentRate = monthlyStats.total > 0 ? Math.round((monthlyStats.present / monthlyStats.total) * 100) : 0;
 
   return (
@@ -386,57 +472,111 @@ function CalendarTab({ currentMonth, calendarDays, groupedByDate, usersMap, mont
           </div>
           <div className="grid grid-cols-7">
             {calendarDays.map((date, idx) => {
-              const logs = groupedByDate[toLocalDateKey(date)] || [];
+              const dateKey = toLocalDateKey(date);
+              const logs = groupedByDate[dateKey] || [];
               const isCurrentMonth = date.getMonth() === currentMonth.getMonth();
               const isToday = isSameDay(date, today);
+              const isSelected = selectedDate === dateKey;
               const hasLogin = logs.some((l) => l.Status === "Login");
               const hasLogout = logs.some((l) => l.Status === "Logout");
+              
               return (
-                <div key={idx} className={["aspect-square flex flex-col items-center justify-start pt-1.5 pb-1", isToday ? "ring-2 ring-inset ring-[#CC1318]" : "", isCurrentMonth ? "" : "opacity-30"].join(" ")}>
-                  <span className={["text-[12px] font-semibold w-6 h-6 flex items-center justify-center rounded-lg", isToday ? "bg-[#CC1318] text-white" : "text-gray-700"].join(" ")}>{date.getDate()}</span>
+                <button 
+                  key={idx} 
+                  onClick={() => setSelectedDate(dateKey)}
+                  className={[
+                    "aspect-square flex flex-col items-center justify-start pt-1.5 pb-1 transition-all active:scale-95", 
+                    isToday ? "ring-2 ring-inset ring-[#CC1318]" : "", 
+                    isSelected ? "bg-[#FFF0F0]" : "",
+                    isCurrentMonth ? "" : "opacity-30"
+                  ].join(" ")}
+                >
+                  <span className={[
+                    "text-[12px] font-semibold w-6 h-6 flex items-center justify-center rounded-lg transition-colors", 
+                    isToday ? "bg-[#CC1318] text-white" : isSelected ? "text-[#CC1318]" : "text-gray-700"
+                  ].join(" ")}>{date.getDate()}</span>
                   {(hasLogin || hasLogout) && (
                     <div className="flex gap-0.5 mt-0.5">
                       {hasLogin && <span className="w-1 h-1 rounded-full bg-[#1A7A4A]" />}
                       {hasLogout && <span className="w-1 h-1 rounded-full bg-[#CC1318]" />}
                     </div>
                   )}
-                </div>
+                </button>
               );
             })}
           </div>
         </div>
         <div className="flex gap-4 px-5 mt-3 mb-4">
-          {[{ color: "#1A7A4A", label: "Login" }, { color: "#CC1318", label: "Logout" }, { color: "#CC1318", label: "Today", rounded: true }].map((l) => (
+          {[{ color: "#1A7A4A", label: "Login" }, { color: "#CC1318", label: "Logout" }, { color: "#CC1318", label: "Selected", rounded: true }].map((l) => (
             <div key={l.label} className="flex items-center gap-1.5">
               <span className={`w-2 h-2 flex-shrink-0 ${l.rounded ? "rounded-sm" : "rounded-full"}`} style={{ background: l.color }} />
               <span className="text-[11px] text-gray-500">{l.label}</span>
             </div>
           ))}
         </div>
+
+        <div className="px-5 mb-3 flex items-center justify-between">
+          <p className="text-[13px] font-bold text-gray-800">
+            Activities for {new Date(selectedDate).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
+          </p>
+          {filteredLogs.length > 0 && (
+            <span className="text-[10px] font-semibold text-[#CC1318] bg-[#FEF0F0] px-2 py-0.5 rounded-full">
+              {filteredLogs.length} record{filteredLogs.length !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+
         <div className="flex gap-2 px-4 mb-4 overflow-x-auto">
           {(["All", "Login", "Logout", "Site Visit"] as const).map((f) => (
             <button key={f} onClick={() => setActiveFilter(f)} className={["flex-shrink-0 px-4 py-2 rounded-full text-[12px] font-semibold transition-all border", activeFilter === f ? "bg-[#CC1318] text-white border-[#CC1318] shadow-md shadow-red-100" : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"].join(" ")}>{f}</button>
           ))}
         </div>
-        <div className="px-4 flex flex-col gap-2">
+        <div className="px-4 flex flex-col gap-3">
           {filteredLogs.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-gray-100 px-4 py-6 text-center"><p className="text-[12px] text-gray-400">No records found.</p></div>
+            <div className="bg-white rounded-2xl border border-gray-100 px-4 py-8 text-center flex flex-col items-center gap-2">
+              <div className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-300">
+                <CalendarCheck size={20} />
+              </div>
+              <p className="text-[12px] text-gray-400">No activity recorded for this date.</p>
+            </div>
           ) : (
-            filteredLogs.slice(0, 20).map((log) => {
+            filteredLogs.map((log) => {
               const user = usersMap[log.ReferenceID];
               const isLogin = log.Status === "Login";
               return (
-                <button key={log._id ?? log.date_created} onClick={() => onEventClick(log)} className="w-full flex items-center gap-3 bg-white rounded-2xl border border-gray-100 px-4 py-3 text-left hover:border-gray-200 hover:bg-gray-50 transition-all active:scale-[0.98]">
-                  <div className={`w-9 h-9 rounded-[12px] flex items-center justify-center flex-shrink-0 ${isLogin ? "bg-[#EEF7F2]" : log.Type === "Client Visit" ? "bg-[#FDF4E7]" : "bg-[#FEF0F0]"}`}>
-                    {isLogin ? <LogIn size={15} className="text-[#1A7A4A]" /> : log.Type === "Client Visit" ? <Building2 size={15} className="text-[#A0611A]" /> : <LogOut size={15} className="text-[#CC1318]" />}
+                <button key={log._id ?? log.date_created} onClick={() => onEventClick(log)} className="w-full bg-white rounded-2xl border border-gray-100 p-4 text-left hover:border-gray-200 hover:bg-gray-50 transition-all active:scale-[0.98] shadow-sm flex flex-col gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-[14px] flex items-center justify-center flex-shrink-0 ${isLogin ? "bg-[#EEF7F2]" : log.Type === "Client Visit" ? "bg-[#FDF4E7]" : "bg-[#FEF0F0]"}`}>
+                      {isLogin ? <LogIn size={18} className="text-[#1A7A4A]" /> : log.Type === "Client Visit" ? <Building2 size={18} className="text-[#A0611A]" /> : <LogOut size={18} className="text-[#CC1318]" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[14px] font-bold text-gray-800">{log.Status} – {log.Type}</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">{user ? `${user.Firstname} ${user.Lastname}` : log.Email}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-[13px] font-bold text-gray-700 tabular-nums">{new Date(log.date_created).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", hour12: true })}</p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-semibold text-gray-800 truncate">{log.Status} – {log.Type}</p>
-                    <p className="text-[11px] text-gray-400 truncate mt-0.5">{user ? `${user.Firstname} ${user.Lastname}` : log.Email}</p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-[12px] font-semibold text-gray-600">{new Date(log.date_created).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">{new Date(log.date_created).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}</p>
+
+                  <div className="flex flex-col gap-2 border-t border-gray-50 pt-3">
+                    <div className="flex items-start gap-2">
+                      <MapPin size={12} className="text-gray-400 mt-0.5" />
+                      <p className="text-[11px] text-gray-500 leading-snug">{log.Location || "No location captured"}</p>
+                    </div>
+                    
+                    {log.Type === "Client Visit" && log.SiteVisitAccount && (
+                      <div className="flex items-start gap-2">
+                        <Building2 size={12} className="text-gray-400 mt-0.5" />
+                        <p className="text-[11px] text-gray-600 font-semibold italic">Client: {log.SiteVisitAccount}</p>
+                      </div>
+                    )}
+
+                    <div className="flex items-start gap-2">
+                      <Info size={12} className="text-gray-400 mt-0.5" />
+                      <p className="text-[11px] text-gray-400 italic">
+                        {log.Remarks && log.Remarks !== "No remarks" ? `"${log.Remarks}"` : "No remarks added"}
+                      </p>
+                    </div>
                   </div>
                 </button>
               );
@@ -719,15 +859,17 @@ function ActivityPage() {
   const todayLogs = groupedByDate[todayKey] || [];
 
   const todayVisits = useMemo(() => allVisibleAccounts.filter(
-    (p) => (p.Status.toLowerCase() === "login" || p.Status.toLowerCase() === "logout") && isSameDay(new Date(p.date_created), today)
-  ), [allVisibleAccounts]);
+    (p) => (p.Status.toLowerCase() === "login" || p.Status.toLowerCase() === "logout" || p.Type.toLowerCase() === "client visit") && toLocalDateKey(p.date_created) === todayKey
+  ), [allVisibleAccounts, todayKey]);
 
   const timelineItems: TimelineItem[] = todayVisits.map((p) => ({
-    id: p._id ?? p.date_created, title: p.SiteVisitAccount || "Unknown Client",
-    description: p.Remarks || "No remarks", location: p.Location || "",
+    id: p._id ?? p.date_created, 
+    title: p.Type === "Client Visit" ? p.SiteVisitAccount : p.Status,
+    description: p.Remarks || "No remarks", 
+    location: p.Location || "",
     status: p.Status || "",
     date: new Date(p.date_created).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-  }));
+  })).sort((a, b) => new Date(b.id).getTime() - new Date(a.id).getTime());
 
   const monthlyStats = useMemo(() => {
     const thisMonthLogs = allVisibleAccounts.filter((p) => {
@@ -753,6 +895,21 @@ function ActivityPage() {
     { id: "profile" as const, icon: User, label: "Profile" },
   ];
 
+  const renderActiveTab = () => {
+    switch (activeTab) {
+      case "home":
+        return <HomeTab userDetails={userDetails} todayLogs={todayLogs} monthlyStats={monthlyStats} onCreateAttendance={() => setCreateAttendanceOpen(true)} onCreateSiteVisit={() => setCreateSalesAttendanceOpen(true)} onSetTab={setActiveTab} />;
+      case "calendar":
+        return <CalendarTab currentMonth={currentMonth} calendarDays={calendarDays} groupedByDate={groupedByDate} usersMap={usersMap} monthlyStats={monthlyStats} allLogs={allVisibleAccounts} onEventClick={onEventClick} goToPrevMonth={goToPrevMonth} goToNextMonth={goToNextMonth} />;
+      case "reports":
+        return <ReportsTab monthlyStats={monthlyStats} allLogs={allVisibleAccounts} userId={userId} />;
+      case "profile":
+        return <ProfileTab userDetails={userDetails} userId={userId} onLogout={handleLogout} />;
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="fixed inset-0 flex flex-col bg-[#F9F6F4] overflow-hidden">
       {loading && posts.length === 0 && (
@@ -769,28 +926,19 @@ function ActivityPage() {
         </div>
       )}
 
-      <div className="flex-1 overflow-hidden">
-        {activeTab === "home" && (
-          <div className="h-full overflow-y-auto">
-            <HomeTab userDetails={userDetails} todayLogs={todayLogs} monthlyStats={monthlyStats} onCreateAttendance={() => setCreateAttendanceOpen(true)} onCreateSiteVisit={() => setCreateSalesAttendanceOpen(true)} onSetTab={setActiveTab} />
-          </div>
-        )}
-        {activeTab === "calendar" && (
-          <div className="h-full overflow-hidden flex flex-col">
-            <CalendarTab currentMonth={currentMonth} calendarDays={calendarDays} groupedByDate={groupedByDate} usersMap={usersMap} monthlyStats={monthlyStats} allLogs={allVisibleAccounts} onEventClick={onEventClick} goToPrevMonth={goToPrevMonth} goToNextMonth={goToNextMonth} />
-          </div>
-        )}
-        {activeTab === "reports" && (
-          <div className="h-full overflow-y-auto">
-            <ReportsTab monthlyStats={monthlyStats} allLogs={allVisibleAccounts} userId={userId} />
-          </div>
-        )}
-        {activeTab === "profile" && (
-          <div className="h-full overflow-y-auto">
-            {/* Pass onLogout to ProfileTab */}
-            <ProfileTab userDetails={userDetails} userId={userId} onLogout={handleLogout} />
-          </div>
-        )}
+      <div className="flex-1 overflow-hidden relative">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2, ease: "easeInOut" }}
+            className="h-full"
+          >
+            {renderActiveTab()}
+          </motion.div>
+        </AnimatePresence>
       </div>
 
       {/* Floating Today's Activity Panel */}

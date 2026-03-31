@@ -57,23 +57,64 @@ export default function CreateAttendance({
   const [showMap, setShowMap] = useState(false);
 
   useEffect(() => {
-    if (open && formData.Type !== "On Field") onChangeAction("Type", "On Field");
+    if (open) {
+      if (formData.Type !== "On Field") onChangeAction("Type", "On Field");
+      setCapturedImage(null);
+      setLocationAddress("Fetching location...");
+      setManualLat(null);
+      setManualLng(null);
+    }
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        setLatitude(coords.latitude);
-        setLongitude(coords.longitude);
-        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.latitude}&lon=${coords.longitude}`)
+    
+    const getLocation = () => {
+      setLocationAddress("Fetching location...");
+      
+      const options = {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0
+      };
+
+      const success = (position: GeolocationPosition) => {
+        const { latitude: lat, longitude: lng } = position.coords;
+        setLatitude(lat);
+        setLongitude(lng);
+        
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
           .then((r) => r.json())
-          .then((d) => setLocationAddress(d.display_name || "Location detected"))
-          .catch(() => setLocationAddress("Location detected (no address)"));
-      },
-      () => setLocationAddress("Location unavailable"),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
+          .then((d) => {
+            const addr = d.display_name || "Location detected";
+            setLocationAddress(addr);
+          })
+          .catch(() => setLocationAddress("Location detected (GPS OK)"));
+      };
+
+      const error = (err: GeolocationPositionError) => {
+        console.warn(`Geolocation error (${err.code}): ${err.message}`);
+        
+        // Retry with lower accuracy if high accuracy fails
+        if (err.code === err.TIMEOUT || err.code === err.POSITION_UNAVAILABLE) {
+          navigator.geolocation.getCurrentPosition(success, 
+            () => setLocationAddress("Location unavailable. Please check GPS."), 
+            { ...options, enableHighAccuracy: false, timeout: 10000 }
+          );
+        } else {
+          setLocationAddress("Location permission denied or unavailable.");
+        }
+      };
+
+      if (!navigator.geolocation) {
+        setLocationAddress("Geolocation not supported by browser.");
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(success, error, options);
+    };
+
+    getLocation();
     return () => setCapturedImage(null);
   }, [open]);
 
@@ -128,7 +169,7 @@ export default function CreateAttendance({
     setLoading(false);
   };
 
-  const isSubmitDisabled = loading || !formData.Status || !capturedImage || locationAddress === "Fetching location...";
+  const isSubmitDisabled = loading || !formData.Status || !capturedImage || locationAddress === "Fetching location..." || locationAddress.includes("unavailable");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChangeAction}>

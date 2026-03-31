@@ -78,30 +78,63 @@ export default function CreateSalesAttendance({
   /* ── Reset on open ── */
   useEffect(() => {
     if (!open) return;
+    setManualLat(null);
+    setManualLng(null);
+    setCapturedImage(null);
     setClientType("");
     setShowMap(false);
-    setCapturedImage(null);
   }, [open]);
 
   /* ── Geolocation ── */
   useEffect(() => {
     if (!open) return;
-    setManualLat(null);
-    setManualLng(null);
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        setLatitude(coords.latitude);
-        setLongitude(coords.longitude);
-        fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.latitude}&lon=${coords.longitude}`
-        )
+    
+    const getLocation = () => {
+      setLocationAddress("Fetching location...");
+      
+      const options = {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0
+      };
+
+      const success = (position: GeolocationPosition) => {
+        const { latitude: lat, longitude: lng } = position.coords;
+        setLatitude(lat);
+        setLongitude(lng);
+        
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
           .then((r) => r.json())
-          .then((d) => setLocationAddress(d.display_name || "Location detected"))
-          .catch(() => setLocationAddress("Location detected"));
-      },
-      () => setLocationAddress("Location not allowed"),
-      { enableHighAccuracy: true }
-    );
+          .then((d) => {
+            const addr = d.display_name || "Location detected";
+            setLocationAddress(addr);
+          })
+          .catch(() => setLocationAddress("Location detected (GPS OK)"));
+      };
+
+      const error = (err: GeolocationPositionError) => {
+        console.warn(`Geolocation error (${err.code}): ${err.message}`);
+        
+        // Retry with lower accuracy if high accuracy fails
+        if (err.code === err.TIMEOUT || err.code === err.POSITION_UNAVAILABLE) {
+          navigator.geolocation.getCurrentPosition(success, 
+            () => setLocationAddress("Location unavailable. Please check GPS."), 
+            { ...options, enableHighAccuracy: false, timeout: 10000 }
+          );
+        } else {
+          setLocationAddress("Location permission denied or unavailable.");
+        }
+      };
+
+      if (!navigator.geolocation) {
+        setLocationAddress("Geolocation not supported by browser.");
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(success, error, options);
+    };
+
+    getLocation();
   }, [open]);
 
   /* ── Login Summary — fetch ONCE when dialog opens ── */
@@ -255,6 +288,8 @@ export default function CreateSalesAttendance({
     !capturedImage ||
     !clientType ||
     loadingStatus ||
+    locationAddress === "Fetching location..." ||
+    locationAddress.includes("unavailable") ||
     (clientType === "Existing Client" && !formData.SiteVisitAccount);
 
   /* ── Render ── */

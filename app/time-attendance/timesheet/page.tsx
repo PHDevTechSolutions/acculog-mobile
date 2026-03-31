@@ -12,10 +12,16 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { format } from "date-fns";
 import ProtectedPageWrapper from "@/components/protected-page-wrapper";
 import {
   Search, DownloadCloud, Info, Clock, AlertCircle,
-  ArrowDownLeft, ArrowUpRight, ArrowLeft,
+  ArrowDownLeft, ArrowUpRight, ArrowLeft, Calendar as CalendarIcon,
+  Filter,
 } from "lucide-react";
 import type { DateRange } from "react-day-picker";
 
@@ -47,6 +53,68 @@ interface WeeklyLog extends Record<string, number> {
   late: number;
   undertime: number;
   overtime: number;
+}
+
+// ── Mobile Card Item ──────────────────────────────────────────────────────────
+
+function MobileTimesheetCard({ 
+  refId, 
+  name, 
+  week, 
+  dayHeaders, 
+  profilePicture, 
+  onInfoClick 
+}: { 
+  refId: string; 
+  name: string; 
+  week: WeeklyLog & Record<string, number>; 
+  dayHeaders: DailyLog[]; 
+  profilePicture?: string; 
+  onInfoClick: () => void; 
+}) {
+  const total = dayHeaders.reduce((s, { dateStr }) => s + (week[dateStr] ?? 0), 0);
+  const initials = name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+
+  return (
+    <div className="bg-white rounded-3xl border border-gray-100 p-4 shadow-sm mb-3">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          {profilePicture ? (
+            <img src={profilePicture} alt="" className="w-10 h-10 rounded-full object-cover border border-gray-100" />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-[#FEF0F0] flex items-center justify-center text-[12px] font-bold text-[#CC1318]">
+              {initials}
+            </div>
+          )}
+          <div>
+            <p className="text-[14px] font-bold text-gray-800 capitalize">{name}</p>
+            <p className="text-[11px] text-gray-400">Total: {total.toFixed(2)} hrs</p>
+          </div>
+        </div>
+        <button 
+          onClick={onInfoClick}
+          className="w-8 h-8 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-[#FEF0F0] hover:text-[#CC1318] transition-colors"
+        >
+          <Info size={16} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-[#FEF0F0] rounded-2xl px-3 py-2.5 text-center border border-red-50">
+          <p className="text-[13px] font-bold text-[#CC1318]">{week.late.toFixed(1)}h</p>
+          <p className="text-[#CC1318]/60 text-[9px] font-semibold uppercase tracking-wider mt-0.5">Late</p>
+        </div>
+        <div className="bg-[#FDF4E7] rounded-2xl px-3 py-2.5 text-center border border-amber-50">
+          <p className="text-[13px] font-bold text-[#A0611A]">{week.undertime.toFixed(1)}h</p>
+          <p className="text-[#A0611A]/60 text-[9px] font-semibold uppercase tracking-wider mt-0.5">Under</p>
+        </div>
+        <div className="bg-[#EEF7F2] rounded-2xl px-3 py-2.5 text-center border border-green-50">
+          <p className="text-[13px] font-bold text-[#1A7A4A]">{week.overtime.toFixed(1)}h</p>
+          <p className="text-[#1A7A4A]/60 text-[9px] font-semibold uppercase tracking-wider mt-0.5">Over</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Inner Page (uses useUser hook) ────────────────────────────────────────────
@@ -176,6 +244,10 @@ function TimesheetPage() {
 
   function formatDate(d: string | Date) {
     const date = new Date(d);
+    // If before 8:00 AM, it belongs to the previous work day
+    if (date.getHours() < 8) {
+      date.setDate(date.getDate() - 1);
+    }
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
 
@@ -188,36 +260,66 @@ function TimesheetPage() {
   }
 
   function calculateTimes(logs: ActivityLog[]) {
-    const loginTimes = logs.filter((l) => l.Status.toLowerCase() === "login")
-      .map((l) => new Date(l.date_created)).sort((a, b) => a.getTime() - b.getTime());
-    const logoutTimes = logs.filter((l) => l.Status.toLowerCase() === "logout")
-      .map((l) => new Date(l.date_created)).sort((a, b) => a.getTime() - b.getTime());
-
-    const firstLogin = loginTimes[0] ?? null;
-    const lastLogout = logoutTimes[logoutTimes.length - 1] ?? null;
-    if (!firstLogin) return { hours: 0, late: 0, undertime: 0, overtime: 0 };
-
-    const shiftStart = new Date(firstLogin); shiftStart.setHours(8, 0, 0, 0);
-    const shiftEnd = new Date(firstLogin); shiftEnd.setHours(18, 31, 0, 0);
-    const now = new Date();
-    const endTime = lastLogout && lastLogout > firstLogin ? lastLogout : now < shiftEnd ? now : shiftEnd;
-
-    let totalMs = endTime.getTime() - firstLogin.getTime();
-    const lunchStart = new Date(firstLogin); lunchStart.setHours(12, 0, 0, 0);
-    const lunchEnd = new Date(firstLogin); lunchEnd.setHours(13, 0, 0, 0);
-    if (firstLogin < lunchEnd && endTime > lunchStart) {
-      const overlapStart = firstLogin > lunchStart ? firstLogin : lunchStart;
-      const overlapEnd = endTime < lunchEnd ? endTime : lunchEnd;
-      const overlapMs = overlapEnd.getTime() - overlapStart.getTime();
-      if (overlapMs > 0) totalMs -= overlapMs;
+    // Sort logs by time (earliest first)
+    const sortedLogs = [...logs].sort((a, b) => new Date(a.date_created).getTime() - new Date(b.date_created).getTime());
+    
+    let totalMs = 0;
+    let firstLogin: Date | null = null;
+    let lastLogout: Date | null = null;
+    
+    // Group logs by Type to pair Login/Logout correctly
+    const logsByType: Record<string, ActivityLog[]> = {};
+    for (const l of sortedLogs) {
+      if (!logsByType[l.Type]) logsByType[l.Type] = [];
+      logsByType[l.Type].push(l);
     }
 
+    for (const typeLogs of Object.values(logsByType)) {
+      let currentLogin: Date | null = null;
+      for (const log of typeLogs) {
+        const logDate = new Date(log.date_created);
+        if (log.Status.toLowerCase() === "login") {
+          if (!firstLogin || logDate < firstLogin) firstLogin = logDate;
+          currentLogin = logDate;
+        } else if (log.Status.toLowerCase() === "logout") {
+          if (currentLogin) {
+            totalMs += logDate.getTime() - currentLogin.getTime();
+            if (!lastLogout || logDate > lastLogout) lastLogout = logDate;
+            currentLogin = null;
+          }
+        }
+      }
+    }
+
+    if (!firstLogin) return { hours: 0, late: 0, undertime: 0, overtime: 0 };
+
+    // Reference Shift: 8:00 AM - 5:00 PM (Standard 9-hour shift including 1-hour lunch)
+    const workDay = new Date(firstLogin);
+    if (workDay.getHours() < 8) workDay.setDate(workDay.getDate() - 1);
+    
+    const shiftStart = new Date(workDay); shiftStart.setHours(8, 0, 0, 0);
+    const shiftEnd = new Date(workDay); shiftEnd.setHours(17, 0, 0, 0);
+    
+    // 1. Late Calculation: First Login vs 8:00 AM
     const late = firstLogin > shiftStart ? (firstLogin.getTime() - shiftStart.getTime()) / 3600000 : 0;
-    const undertime = endTime < shiftEnd ? (shiftEnd.getTime() - endTime.getTime()) / 3600000 : 0;
-    const overtime = endTime > shiftEnd ? (endTime.getTime() - shiftEnd.getTime()) / 3600000 : 0;
+    
+    // 2. Total Worked Hours (with 1-hour lunch deduction if they worked across 12 PM - 1 PM)
+    const lunchStart = new Date(firstLogin); lunchStart.setHours(12, 0, 0, 0);
+    const lunchEnd = new Date(firstLogin); lunchEnd.setHours(13, 0, 0, 0);
+    
+    let actualHours = totalMs / 3600000;
+    // Deduct lunch if the total duration covers the lunch hour
+    if (actualHours > 5) actualHours = Math.max(0, actualHours - 1);
+
+    // 3. Overtime: Worked hours beyond 8 hours
+    const expectedHours = 8;
+    const overtime = actualHours > expectedHours ? actualHours - expectedHours : 0;
+    
+    // 4. Undertime: If they logged out before 5:00 PM (only if they have a logout)
+    const undertime = (lastLogout && lastLogout < shiftEnd) ? (shiftEnd.getTime() - lastLogout.getTime()) / 3600000 : 0;
 
     return {
-      hours: +((totalMs / 3600000) || 0).toFixed(2),
+      hours: +(actualHours.toFixed(2)),
       late: +late.toFixed(2),
       undertime: +undertime.toFixed(2),
       overtime: +overtime.toFixed(2),
@@ -241,9 +343,12 @@ function TimesheetPage() {
     .filter((post) => isDateInRange(post.date_created, dateCreatedFilterRange));
 
   const dayHeaders: DailyLog[] = [];
-  if (dateCreatedFilterRange?.from && dateCreatedFilterRange?.to) {
-    for (let d = new Date(dateCreatedFilterRange.from); d <= dateCreatedFilterRange.to; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() === 0) continue;
+  if (dateCreatedFilterRange?.from) {
+    const start = new Date(dateCreatedFilterRange.from);
+    const end = dateCreatedFilterRange.to ? new Date(dateCreatedFilterRange.to) : new Date(start);
+    
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() === 0) continue; // Skip Sundays if needed
       dayHeaders.push({ dateStr: formatDate(new Date(d)), label: formatDateLabel(new Date(d)) });
     }
   } else {
@@ -345,13 +450,53 @@ function TimesheetPage() {
           </div>
         </div>
 
-        <button
-          onClick={exportToExcel}
-          className="flex items-center gap-2 bg-[#CC1318] text-white px-4 py-2 rounded-2xl text-[12px] font-semibold hover:bg-[#A8100F] transition-all shadow-md shadow-red-100 active:scale-[0.97]"
-        >
-          <DownloadCloud size={14} />
-          <span className="hidden sm:inline">Export</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Date Range Picker */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant={"outline"}
+                className={cn(
+                  "h-9 px-3 rounded-2xl text-[12px] font-semibold border-gray-200 hover:bg-gray-50",
+                  !dateCreatedFilterRange && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                {dateCreatedFilterRange?.from ? (
+                  dateCreatedFilterRange.to ? (
+                    <>
+                      {format(dateCreatedFilterRange.from, "LLL dd")} -{" "}
+                      {format(dateCreatedFilterRange.to, "LLL dd")}
+                    </>
+                  ) : (
+                    format(dateCreatedFilterRange.from, "LLL dd")
+                  )
+                ) : (
+                  <span>Select Date Range</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0 rounded-2xl overflow-hidden" align="end">
+              <Calendar
+                initialFocus
+                mode="range"
+                defaultMonth={dateCreatedFilterRange?.from}
+                selected={dateCreatedFilterRange}
+                onSelect={setDateCreatedFilterRange}
+                numberOfMonths={1}
+                className="bg-white"
+              />
+            </PopoverContent>
+          </Popover>
+
+          <button
+            onClick={exportToExcel}
+            className="flex items-center gap-2 bg-[#CC1318] text-white h-9 px-4 rounded-2xl text-[12px] font-semibold hover:bg-[#A8100F] transition-all shadow-md shadow-red-100 active:scale-[0.97]"
+          >
+            <DownloadCloud size={14} />
+            <span className="hidden sm:inline">Export</span>
+          </button>
+        </div>
       </header>
 
       <main className="p-4">
@@ -389,8 +534,36 @@ function TimesheetPage() {
           )}
         </div>
 
-        {/* ── Table ── */}
-        <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
+        {/* ── Mobile Card List (Visible on Mobile only) ── */}
+        <div className="sm:hidden">
+          {visibleRows.length === 0 ? (
+            <div className="bg-white rounded-3xl border border-gray-100 px-4 py-12 text-center shadow-sm">
+              <div className="w-10 h-10 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-3">
+                <Clock size={18} className="text-gray-300" />
+              </div>
+              <p className="text-[12px] text-gray-400">No records found.</p>
+            </div>
+          ) : (
+            visibleRows.map(([ref, week]) => {
+              const u = usersMap[ref];
+              const name = u ? `${u.Firstname} ${u.Lastname}` : ref;
+              return (
+                <MobileTimesheetCard
+                  key={ref}
+                  refId={ref}
+                  name={name}
+                  week={week}
+                  dayHeaders={dayHeaders}
+                  profilePicture={u?.profilePicture}
+                  onInfoClick={() => setSelectedRef(ref)}
+                />
+              );
+            })
+          )}
+        </div>
+
+        {/* ── Table (Hidden on Mobile) ── */}
+        <div className="hidden sm:block bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <div>
               <p className="text-[13px] font-semibold text-gray-800">Timesheet Summary</p>

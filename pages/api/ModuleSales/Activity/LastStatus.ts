@@ -27,17 +27,22 @@ export default async function lastStatus(
 
     const collection = db.collection("TaskLog");
 
-    // Today's full range (midnight → 23:59:59)
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    // Work Day window (8 AM to 8 AM next day)
+    const now = new Date();
+    const startOfWorkDay = new Date(now);
+    startOfWorkDay.setHours(8, 0, 0, 0);
+    if (now < startOfWorkDay) {
+      startOfWorkDay.setDate(startOfWorkDay.getDate() - 1);
+    }
 
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
+    const endOfWorkDay = new Date(startOfWorkDay);
+    endOfWorkDay.setDate(endOfWorkDay.getDate() + 1);
+    endOfWorkDay.setMilliseconds(-1);
 
     const lastActivityToday = await collection.findOne(
       {
         ReferenceID: referenceId.trim(),
-        date_created: { $gte: startOfToday, $lte: endOfToday },
+        date_created: { $gte: startOfWorkDay, $lte: endOfWorkDay },
       },
       {
         sort: { date_created: -1 },

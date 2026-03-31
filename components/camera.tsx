@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import * as faceapi from "face-api.js";
 import { RefreshCcw, SwitchCamera, Camera as CameraIcon, CheckCircle2, AlertCircle } from "lucide-react";
 
 interface CameraProps {
@@ -18,7 +19,7 @@ export default function Camera({ onCaptureAction }: CameraProps) {
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
-  const detectorRef = useRef<any>(null);
+  const modelsLoadedRef = useRef(false);
 
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -46,22 +47,27 @@ export default function Camera({ onCaptureAction }: CameraProps) {
     overlay.height = video.videoHeight || video.clientHeight;
     ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-    if (!detectorRef.current) {
+    if (!modelsLoadedRef.current) {
       rafRef.current = requestAnimationFrame(runFaceDetection);
       return;
     }
 
     try {
-      const faces: any[] = await detectorRef.current.detect(video);
-      setFaceCount(faces.length);
+      // Using face-api.js with TinyFaceDetector
+      const detections = await faceapi.detectAllFaces(
+        video,
+        new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.5 })
+      );
+      
+      setFaceCount(detections.length);
 
-      if (faces.length === 0) {
+      if (detections.length === 0) {
         setFaceStatus("no-face");
-      } else if (faces.length > 1) {
+      } else if (detections.length > 1) {
         setFaceStatus("multiple");
         // Draw red boxes for extra faces
-        faces.forEach((face) => {
-          const { x, y, width, height } = face.boundingBox;
+        detections.forEach((det) => {
+          const { x, y, width, height } = det.box;
           const scaleX = overlay.width / video.videoWidth;
           const scaleY = overlay.height / video.videoHeight;
           ctx.strokeStyle = "#CC1318";
@@ -71,8 +77,8 @@ export default function Camera({ onCaptureAction }: CameraProps) {
       } else {
         setFaceStatus("detected");
         // Draw a polished scan frame around the single detected face
-        const face = faces[0];
-        const { x, y, width, height } = face.boundingBox;
+        const det = detections[0];
+        const { x, y, width, height } = det.box;
         const scaleX = overlay.width / video.videoWidth;
         const scaleY = overlay.height / video.videoHeight;
         const fx = x * scaleX;
@@ -137,30 +143,33 @@ export default function Camera({ onCaptureAction }: CameraProps) {
         ctx.fillStyle = grad;
         ctx.fillRect(px, scanY - 8, pw, 16);
       }
-    } catch {
-      // FaceDetector not supported or error — fail silently
+    } catch (err) {
+      console.error("Detection error:", err);
       setFaceStatus("unsupported");
     }
 
     rafRef.current = requestAnimationFrame(runFaceDetection);
   }, []);
 
-  // ── Initialize face detector ───────────────────────────────────────────────
+  // ── Initialize face-api.js models ───────────────────────────────────────────
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if ("FaceDetector" in window) {
+    const loadModels = async () => {
       try {
-        detectorRef.current = new (window as any).FaceDetector({
-          fastMode: true,
-          maxDetectedFaces: 5,
-        });
-      } catch {
+        const MODEL_URL = "/models";
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(`${MODEL_URL}/tiny_face_detector`),
+          // Add other models if needed for landmarks/expressions
+          // faceapi.nets.faceLandmark68Net.loadFromUri(`${MODEL_URL}/face_landmark68`),
+          // faceapi.nets.faceExpressionNet.loadFromUri(`${MODEL_URL}/face_expression`),
+        ]);
+        modelsLoadedRef.current = true;
+      } catch (err) {
+        console.error("Error loading face-api models:", err);
         setFaceStatus("unsupported");
       }
-    } else {
-      setFaceStatus("unsupported");
-    }
+    };
+    loadModels();
   }, []);
 
   // Start / stop detection loop
@@ -201,20 +210,55 @@ export default function Camera({ onCaptureAction }: CameraProps) {
 
   const requestPermission = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      // First, try to get the stream to trigger permission prompt
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: "user" } 
+      });
+      
       setPermissionGiven(true);
       if (videoRef.current) videoRef.current.srcObject = stream;
       streamRef.current = stream;
 
+      // After permission is granted, enumerate devices to get labels
       const all = await navigator.mediaDevices.enumerateDevices();
-      const video = all.filter((d) => d.kind === "videoinput");
-      setDevices(video);
-      if (video.length > 0) setSelectedDevice(video[0].deviceId);
+      const videoDevices = all.filter((d) => d.kind === "videoinput");
+      
+      setDevices(videoDevices);
+      if (videoDevices.length > 0) {
+        // Prefer a device that was already selected if it exists
+        const exists = videoDevices.find(d => d.deviceId === selectedDevice);
+        if (!exists) setSelectedDevice(videoDevices[0].deviceId);
+      }
       setCameraStarted(true);
-    } catch (e) {
-      console.error("Permission denied:", e);
+    } catch (e: any) {
+      console.error("Camera access error:", e);
+      if (e.name === "NotAllowedError") {
+        alert("Camera access denied. Please enable it in your browser settings.");
+      } else if (e.name === "NotFoundError" || e.name === "DevicesNotFoundError") {
+        alert("No camera found on this device.");
+      } else {
+        alert("Could not start camera. Please refresh and try again.");
+      }
     }
   };
+
+  // Auto-check for existing permissions on mount
+  useEffect(() => {
+    const checkPermission = async () => {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const hasLabels = devices.some(d => d.kind === "videoinput" && d.label !== "");
+        if (hasLabels) {
+          // Permission might already be given, try to start
+          requestPermission();
+        }
+      } catch (e) {
+        console.warn("Permission check failed", e);
+      }
+    };
+    checkPermission();
+  }, []);
 
   useEffect(() => {
     if (!permissionGiven || !cameraStarted || !selectedDevice) return;
@@ -231,7 +275,16 @@ export default function Camera({ onCaptureAction }: CameraProps) {
   // ── Capture flow ───────────────────────────────────────────────────────────
 
   const handleTap = () => {
-    if (!capturedImage && countdown === null) setCountdown(COUNTDOWN_SECONDS);
+    // Only allow tap if face is detected OR if face detection is unsupported (fallback)
+    const canCapture = faceStatus === "detected" || faceStatus === "unsupported";
+    if (!capturedImage && countdown === null) {
+      if (canCapture) {
+        setCountdown(COUNTDOWN_SECONDS);
+      } else {
+        // Optional: you could add a small shake animation or toast here
+        console.log("Capture blocked: face not detected");
+      }
+    }
   };
 
   useEffect(() => {
@@ -321,7 +374,11 @@ export default function Camera({ onCaptureAction }: CameraProps) {
 
           {/* Camera viewfinder */}
           <div
-            className="relative w-full cursor-pointer select-none overflow-hidden rounded-2xl border border-gray-200 bg-black"
+            className={`relative w-full select-none overflow-hidden rounded-2xl border border-gray-200 bg-black transition-all ${
+              faceStatus === "detected" || faceStatus === "unsupported" 
+                ? "cursor-pointer active:scale-[0.995]" 
+                : "cursor-not-allowed grayscale-[0.2]"
+            }`}
             onClick={handleTap}
             onTouchStart={handleTap}
             style={{ aspectRatio: "4/3" }}
@@ -379,10 +436,11 @@ export default function Camera({ onCaptureAction }: CameraProps) {
 
             {/* No face / multiple hint */}
             {countdown === null && (faceStatus === "no-face" || faceStatus === "multiple") && (
-              <div className="absolute inset-0 flex items-end justify-center pb-4 pointer-events-none">
-                <div className="bg-black/60 rounded-full px-4 py-2">
-                  <span className="text-white/80 text-[11px] font-medium">
-                    {faceStatus === "no-face" ? "Position your face in frame" : "Please use camera alone"}
+              <div className="absolute inset-0 flex items-end justify-center pb-6 pointer-events-none">
+                <div className="bg-[#CC1318]/90 backdrop-blur-sm rounded-full px-5 py-2.5 flex items-center gap-2 shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <AlertCircle size={14} className="text-white" />
+                  <span className="text-white text-[12px] font-semibold">
+                    {faceStatus === "no-face" ? "Position your face in frame" : "Multiple faces detected"}
                   </span>
                 </div>
               </div>
