@@ -22,6 +22,8 @@ import {
   ChevronRight as ArrowRight, Power, Cloud, Sun, CloudRain, CloudLightning, Wind, Info
 } from "lucide-react";
 
+import { useOfflineSync } from "@/hooks/useOfflineSync";
+
 // ── Weather Component ────────────────────────────────────────────────────────
 
 function WeatherDisplay() {
@@ -202,9 +204,9 @@ function TimelineItemComponent({ item, index }: { item: TimelineItem; index: num
         className="flex-shrink-0 flex flex-col items-center"
       >
         <div className="w-7 h-7 rounded-xl flex items-center justify-center" style={{ background: bgColor }}>
-          {isLogin ? <LogIn size={12} style={{ color: iconColor }} /> : 
-           item.status === "Logout" ? <LogOut size={12} style={{ color: iconColor }} /> :
-           <Building2 size={12} style={{ color: "#A0611A" }} />}
+          {isLogin ? <LogIn size={12} style={{ color: iconColor }} /> :
+            item.status === "Logout" ? <LogOut size={12} style={{ color: iconColor }} /> :
+              <Building2 size={12} style={{ color: "#A0611A" }} />}
         </div>
         <div className="w-px flex-1 mt-1 min-h-[12px]" style={{ background: "#EDE5E1" }} />
       </motion.div>
@@ -433,7 +435,7 @@ function CalendarTab({ currentMonth, calendarDays, groupedByDate, usersMap, mont
 
   const filteredLogs = useMemo(() => {
     let logs = allLogs;
-    
+
     // Filter by selected date
     if (selectedDate) {
       logs = logs.filter(l => toLocalDateKey(l.date_created) === selectedDate);
@@ -483,20 +485,20 @@ function CalendarTab({ currentMonth, calendarDays, groupedByDate, usersMap, mont
               const isSelected = selectedDate === dateKey;
               const hasLogin = logs.some((l) => l.Status === "Login");
               const hasLogout = logs.some((l) => l.Status === "Logout");
-              
+
               return (
-                <button 
-                  key={idx} 
+                <button
+                  key={idx}
                   onClick={() => setSelectedDate(dateKey)}
                   className={[
-                    "aspect-square flex flex-col items-center justify-start pt-1.5 pb-1 transition-all active:scale-95", 
-                    isToday ? "ring-2 ring-inset ring-[#CC1318]" : "", 
+                    "aspect-square flex flex-col items-center justify-start pt-1.5 pb-1 transition-all active:scale-95",
+                    isToday ? "ring-2 ring-inset ring-[#CC1318]" : "",
                     isSelected ? "bg-[#FFF0F0]" : "",
                     isCurrentMonth ? "" : "opacity-30"
                   ].join(" ")}
                 >
                   <span className={[
-                    "text-[12px] font-semibold w-6 h-6 flex items-center justify-center rounded-lg transition-colors", 
+                    "text-[12px] font-semibold w-6 h-6 flex items-center justify-center rounded-lg transition-colors",
                     isToday ? "bg-[#CC1318] text-white" : isSelected ? "text-[#CC1318]" : "text-gray-700"
                   ].join(" ")}>{date.getDate()}</span>
                   {(hasLogin || hasLogout) && (
@@ -567,7 +569,7 @@ function CalendarTab({ currentMonth, calendarDays, groupedByDate, usersMap, mont
                       <MapPin size={12} className="text-gray-400 mt-0.5" />
                       <p className="text-[11px] text-gray-500 leading-snug">{log.Location || "No location captured"}</p>
                     </div>
-                    
+
                     {log.Type === "Client Visit" && log.SiteVisitAccount && (
                       <div className="flex items-start gap-2">
                         <Building2 size={12} className="text-gray-400 mt-0.5" />
@@ -723,7 +725,7 @@ function ProfileTab({
               <ArrowRight size={13} className="text-gray-400 group-hover:text-white transition-colors" />
             </div>
           </button>
-          
+
           <TimesheetNavCard userId={userId} />
         </div>
 
@@ -778,6 +780,8 @@ function ActivityPage() {
     ReferenceID: "", Email: "", Type: "", Status: "", PhotoURL: "", Remarks: "", TSM: "",
   });
 
+
+
   const today = new Date();
 
   // ── Logout ── matches nav-user.tsx logic exactly
@@ -816,6 +820,7 @@ function ActivityPage() {
     if (userDetails) setFormData((prev) => ({ ...prev, ReferenceID: userDetails.ReferenceID, Email: userDetails.Email, TSM: userDetails.TSM }));
   }, [userDetails]);
 
+
   const fetchAccountAction = async () => {
     if (!userDetails) return;
     setLoading(true);
@@ -847,6 +852,8 @@ function ActivityPage() {
     } catch { toast.error("Error fetching activity logs."); setPosts([]); }
     finally { setLoading(false); }
   };
+
+  const { pendingCount, isOnline, syncNow } = useOfflineSync(fetchAccountAction);
 
   useEffect(() => { fetchAccountAction(); }, [userDetails, dateCreatedFilterRange]);
 
@@ -890,9 +897,9 @@ function ActivityPage() {
   ), [allVisibleAccounts, todayKey]);
 
   const timelineItems: TimelineItem[] = todayVisits.map((p) => ({
-    id: p._id ?? p.date_created, 
+    id: p._id ?? p.date_created,
     title: p.Type === "Client Visit" ? p.SiteVisitAccount : p.Status,
-    description: p.Remarks || "No remarks", 
+    description: p.Remarks || "No remarks",
     location: p.Location || "",
     status: p.Status || "",
     date: new Date(p.date_created).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -1041,7 +1048,7 @@ function ActivityPage() {
             )}
           </div>
         )}
-        
+
         {activeTab === "home" && (
           <div className="absolute bottom-16 left-1/2 -translate-x-1/2">
             {userDetails?.Directories?.includes("Acculog:Button - Site Visit") && (
@@ -1054,34 +1061,34 @@ function ActivityPage() {
       </div>
 
       {/* Dialogs */}
-      <CreateAttendance 
-        open={createAttendanceOpen} 
-        onOpenChangeAction={setCreateAttendanceOpen} 
-        formData={formData} 
-        onChangeAction={onChangeAction} 
-        userDetails={{ 
-          ReferenceID: userDetails?.ReferenceID ?? "", 
-          Email: userDetails?.Email ?? "", 
+      <CreateAttendance
+        open={createAttendanceOpen}
+        onOpenChangeAction={setCreateAttendanceOpen}
+        formData={formData}
+        onChangeAction={onChangeAction}
+        userDetails={{
+          ReferenceID: userDetails?.ReferenceID ?? "",
+          Email: userDetails?.Email ?? "",
           TSM: userDetails?.TSM ?? "",
           faceDescriptors: userDetails?.faceDescriptors
-        } as any} 
-        fetchAccountAction={fetchAccountAction} 
-        setFormAction={setFormData} 
+        } as any}
+        fetchAccountAction={fetchAccountAction}
+        setFormAction={setFormData}
       />
-      <CreateSalesAttendance 
-        open={createSalesAttendanceOpen} 
-        onOpenChangeAction={setCreateSalesAttendanceOpen} 
-        formData={formData} 
-        onChangeAction={onChangeAction} 
-        userDetails={{ 
-          ReferenceID: userDetails?.ReferenceID ?? "", 
-          Email: userDetails?.Email ?? "", 
-          TSM: userDetails?.TSM ?? "", 
+      <CreateSalesAttendance
+        open={createSalesAttendanceOpen}
+        onOpenChangeAction={setCreateSalesAttendanceOpen}
+        formData={formData}
+        onChangeAction={onChangeAction}
+        userDetails={{
+          ReferenceID: userDetails?.ReferenceID ?? "",
+          Email: userDetails?.Email ?? "",
+          TSM: userDetails?.TSM ?? "",
           Role: userDetails?.Role ?? "",
           faceDescriptors: userDetails?.faceDescriptors
-        } as any} 
-        fetchAccountAction={fetchAccountAction} 
-        setFormAction={setFormData} 
+        } as any}
+        fetchAccountAction={fetchAccountAction}
+        setFormAction={setFormData}
       />
 
       {/* ── Face Registration Dialog ── */}
@@ -1105,14 +1112,39 @@ function ActivityPage() {
             <p className="text-[13px] text-gray-600 mb-4 leading-relaxed">
               Please look at the camera and take 3 clear photos of your face from different angles to complete the registration.
             </p>
-            <Camera 
-              mode="register" 
+            <Camera
+              mode="register"
               onRegisterAction={handleFaceRegister}
-              onCaptureAction={() => {}} 
+              onCaptureAction={() => { }}
             />
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Offline / Pending Sync Banner */}
+      {(!isOnline || pendingCount > 0) && (
+        <div
+          className={`flex-shrink-0 flex items-center justify-between px-4 py-2 text-[11px] font-semibold ${isOnline
+              ? "bg-amber-50 text-amber-700 border-t border-amber-100"
+              : "bg-slate-800 text-white"
+            }`}
+        >
+          <div className="flex items-center gap-2">
+            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-amber-400" : "bg-red-400 animate-pulse"}`} />
+            {isOnline
+              ? `${pendingCount} log${pendingCount !== 1 ? "s" : ""} pending sync`
+              : "You are offline — logs will sync when reconnected"}
+          </div>
+          {isOnline && pendingCount > 0 && (
+            <button
+              onClick={syncNow}
+              className="underline underline-offset-2 text-amber-700 font-bold"
+            >
+              Sync now
+            </button>
+          )}
+        </div>
+      )}
 
       <ActivityDialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setSelectedEvent(null); }} selectedEvent={selectedEvent} usersMap={usersMap} />
     </div>

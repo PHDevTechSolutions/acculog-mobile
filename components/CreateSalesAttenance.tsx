@@ -12,7 +12,7 @@ import {
 import Select from "react-select";
 
 const ManualLocationPicker = dynamic(() => import("./manual-location-picker"), { ssr: false });
-
+import { enqueuePendingLog } from "@/lib/offline-store";
 /* ── Types ─────────────────────────────────────────────────────────────────── */
 
 interface FormData {
@@ -90,10 +90,10 @@ export default function CreateSalesAttendance({
   /* ── Geolocation ── */
   useEffect(() => {
     if (!open) return;
-    
+
     const getLocation = () => {
       setLocationAddress("Fetching location...");
-      
+
       const options = {
         enableHighAccuracy: true,
         timeout: 15000,
@@ -104,7 +104,7 @@ export default function CreateSalesAttendance({
         const { latitude: lat, longitude: lng } = position.coords;
         setLatitude(lat);
         setLongitude(lng);
-        
+
         fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
           .then((r) => r.json())
           .then((d) => {
@@ -116,11 +116,11 @@ export default function CreateSalesAttendance({
 
       const error = (err: GeolocationPositionError) => {
         console.warn(`Geolocation error (${err.code}): ${err.message}`);
-        
+
         // Retry with lower accuracy if high accuracy fails
         if (err.code === err.TIMEOUT || err.code === err.POSITION_UNAVAILABLE) {
-          navigator.geolocation.getCurrentPosition(success, 
-            () => setLocationAddress("Location unavailable. Please check GPS."), 
+          navigator.geolocation.getCurrentPosition(success,
+            () => setLocationAddress("Location unavailable. Please check GPS."),
             { ...options, enableHighAccuracy: false, timeout: 10000 }
           );
         } else {
@@ -245,7 +245,15 @@ export default function CreateSalesAttendance({
 
     setLoading(true);
     try {
-      const photoURL = await uploadToCloudinary(capturedImage);
+      let photoURL = "";
+
+      // If offline, store a placeholder — photo upload requires network
+      if (!navigator.onLine) {
+        // Convert base64 to a smaller thumbnail for offline storage
+        photoURL = capturedImage!; // store base64 directly in IndexedDB for now
+      } else {
+        photoURL = await uploadToCloudinary(capturedImage!);
+      }
       const payload = {
         ...formData,
         Type: "Client Visit",
@@ -255,6 +263,16 @@ export default function CreateSalesAttendance({
         Longitude: manualLng ?? longitude,
         FaceData: faceData,
       };
+
+      if (!navigator.onLine) {
+        // Queue for later sync
+        await enqueuePendingLog(payload);
+        toast.success("Saved offline. Will sync when connection is restored.");
+        fetchAccountAction();
+        onOpenChangeAction(false);
+        // reset form...
+        return;
+      }
       const res = await fetch("/api/ModuleSales/Activity/AddLog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -276,11 +294,17 @@ export default function CreateSalesAttendance({
       setCapturedImage(null);
       onOpenChangeAction(false);
     } catch (err) {
-      console.error("Attendance creation error:", err);
-      toast.error("Error saving attendance.");
-    } finally {
-      setLoading(false);
+      // Network error — queue offline
+      if (!navigator.onLine || (err instanceof TypeError && err.message.includes("fetch"))) {
+        await enqueuePendingLog({ ...formData, Location: locationAddress, Latitude: latitude, Longitude: longitude });
+        toast.success("Saved offline. Will sync when connection is restored.");
+        onOpenChangeAction(false);
+      } else {
+        console.error(err);
+        toast.error("Error saving attendance.");
+      }
     }
+    setLoading(false);
   };
 
   // Determine UI state
@@ -346,10 +370,10 @@ export default function CreateSalesAttendance({
               </div>
               <span
                 className={`text-[12px] font-bold ${loadingStatus
-                    ? "text-yellow-200"
-                    : isLogout
-                      ? "text-red-200"
-                      : "text-green-200"
+                  ? "text-yellow-200"
+                  : isLogout
+                    ? "text-red-200"
+                    : "text-green-200"
                   }`}
               >
                 {loadingStatus ? "Loading..." : nextAction || "—"}
@@ -371,12 +395,12 @@ export default function CreateSalesAttendance({
               <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-2">
                 📷 Photo Verification
               </p>
-              <Camera 
+              <Camera
                 registeredDescriptors={userDetails.faceDescriptors}
                 onCaptureAction={(img, face) => {
                   setCapturedImage(img);
                   setFaceData(face);
-                }} 
+                }}
               />
               {capturedImage && (
                 <div className="mt-2 flex items-center gap-2 bg-[#EEF7F2] rounded-xl px-3 py-2">
