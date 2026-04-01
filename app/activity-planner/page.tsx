@@ -24,6 +24,7 @@ import {
 
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 
+
 // ── Weather Component ────────────────────────────────────────────────────────
 
 function WeatherDisplay() {
@@ -776,6 +777,7 @@ function ActivityPage() {
   const [faceRegisterOpen, setFaceRegisterOpen] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
 
+
   const [formData, setFormData] = useState<FormData>({
     ReferenceID: "", Email: "", Type: "", Status: "", PhotoURL: "", Remarks: "", TSM: "",
   });
@@ -1027,6 +1029,31 @@ function ActivityPage() {
         </>
       )}
 
+      {/* Offline / Pending Sync Banner */}
+      {(!isOnline || pendingCount > 0) && (
+        <div
+          className={`flex-shrink-0 flex items-center justify-between px-4 py-2 text-[11px] font-semibold ${isOnline
+              ? "bg-amber-50 text-amber-700 border-t border-amber-100"
+              : "bg-slate-800 text-white"
+            }`}
+        >
+          <div className="flex items-center gap-2">
+            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-amber-400" : "bg-red-400 animate-pulse"}`} />
+            {isOnline
+              ? `${pendingCount} log${pendingCount !== 1 ? "s" : ""} pending sync`
+              : "You are offline — logs will sync when reconnected"}
+          </div>
+          {isOnline && pendingCount > 0 && (
+            <button
+              onClick={syncNow}
+              className="underline underline-offset-2 text-amber-700 font-bold"
+            >
+              Sync now
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Bottom Navigation */}
       <div className="flex-shrink-0 bg-white border-t border-gray-100 flex items-center" style={{ paddingBottom: "env(safe-area-inset-bottom,0px)" }}>
         {NAV.map((item) => {
@@ -1120,31 +1147,6 @@ function ActivityPage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Offline / Pending Sync Banner */}
-      {(!isOnline || pendingCount > 0) && (
-        <div
-          className={`flex-shrink-0 flex items-center justify-between px-4 py-2 text-[11px] font-semibold ${isOnline
-              ? "bg-amber-50 text-amber-700 border-t border-amber-100"
-              : "bg-slate-800 text-white"
-            }`}
-        >
-          <div className="flex items-center gap-2">
-            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-amber-400" : "bg-red-400 animate-pulse"}`} />
-            {isOnline
-              ? `${pendingCount} log${pendingCount !== 1 ? "s" : ""} pending sync`
-              : "You are offline — logs will sync when reconnected"}
-          </div>
-          {isOnline && pendingCount > 0 && (
-            <button
-              onClick={syncNow}
-              className="underline underline-offset-2 text-amber-700 font-bold"
-            >
-              Sync now
-            </button>
-          )}
-        </div>
-      )}
 
       <ActivityDialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setSelectedEvent(null); }} selectedEvent={selectedEvent} usersMap={usersMap} />
     </div>
