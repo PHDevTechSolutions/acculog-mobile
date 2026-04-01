@@ -347,7 +347,7 @@ function HomeTab({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 pt-4 pb-28">
+      <div className="flex-1 overflow-y-auto px-4 pt-4 pb-28 scroll-smooth">
         <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Quick Actions</p>
         <div className="grid grid-cols-2 gap-3 mb-5">
           {userDetails?.Directories?.includes("Acculog:Button - Client Visit") && (
@@ -394,7 +394,7 @@ function HomeTab({
               <p className="text-[12px] text-gray-400">No activity recorded today.</p>
             </div>
           ) : (
-            <div className="flex flex-col gap-0 overflow-y-auto max-h-[30vh]">
+            <div className="flex flex-col gap-0">
               {todayLogs.map((log) => {
                 const isLogin = log.Status === "Login";
                 return (
