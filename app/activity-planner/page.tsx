@@ -387,7 +387,7 @@ function HomeTab({
           <p className="text-[10px] text-gray-400 mt-1">{presentRate}% attendance rate this month</p>
         </div>
 
-        <div className="border-t border-gray-100 pt-4">
+        {/*<div className="border-t border-gray-100 pt-4">
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Today's Log</p>
           {todayLogs.length === 0 ? (
             <div className="bg-white rounded-2xl border border-gray-100 px-4 py-6 text-center">
@@ -414,7 +414,7 @@ function HomeTab({
               })}
             </div>
           )}
-        </div>
+        </div>*/}
       </div>
     </div>
   );
