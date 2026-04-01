@@ -394,7 +394,7 @@ function HomeTab({
               <p className="text-[12px] text-gray-400">No activity recorded today.</p>
             </div>
           ) : (
-            <div className="flex flex-col gap-0 overflow-y-auto">
+            <div className="flex flex-col gap-0 overflow-y-auto max-h-80">
               {todayLogs.slice(0, 5).map((log) => {
                 const isLogin = log.Status === "Login";
                 return (
