@@ -851,7 +851,7 @@ function ActivityPage() {
         page++;
       } while (page <= totalPages);
       setPosts(allLogs);
-    } catch { toast.error("Error fetching activity logs."); setPosts([]); }
+    } catch { setPosts([]); }
     finally { setLoading(false); }
   };
 
