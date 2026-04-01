@@ -594,14 +594,20 @@ export default function CreateSalesAttendance({
                       </p>
                       <p className="text-[12px] text-gray-500 leading-snug">{locationAddress}</p>
                       <button
-                        onClick={() => setShowMap(!showMap)}
+                        onClick={() => {
+                          if (!navigator.onLine) {
+                            toast.error("Manual map is not available offline.");
+                            return;
+                          }
+                          setShowMap(!showMap);
+                        }}
                         className="mt-2 text-[11px] font-semibold text-[#CC1318] hover:underline"
                       >
                         {showMap ? "Hide map" : "⚙ Set manually →"}
                       </button>
                     </div>
                   </div>
-                  {showMap && (
+                  {showMap && navigator.onLine && (
                     <div className="mt-2 rounded-2xl overflow-hidden border border-gray-200">
                       <ManualLocationPicker
                         latitude={manualLat ?? latitude}
