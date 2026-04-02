@@ -680,7 +680,8 @@ function ProfileTab({
     { label: "Department", value: userDetails.Department },
     { label: "Company", value: userDetails.Company ?? "—" },
     { label: "Reference ID", value: userDetails.ReferenceID },
-    { label: "Biometrics", value: hasBiometrics ? "Registered" : "Not Registered" },
+    { label: "Fingerprint Auth", value: userDetails.credentials && userDetails.credentials.length > 0 ? "Registered" : "Not Registered" },
+    { label: "Face Scan", value: userDetails.faceDescriptors ? "Registered" : "Not Registered" },
   ] : [];
 
   return (
