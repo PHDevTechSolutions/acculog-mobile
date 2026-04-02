@@ -4,6 +4,8 @@ import dynamic from "next/dynamic";
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import Camera from "./camera";
+import { enqueuePendingLog } from "@/lib/offline-store";
+import { uploadToCloudinary } from "@/lib/cloudinary";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { MapPin, ArrowLeft, CheckCircle2, Clock, LogIn, LogOut, FileText, AlertCircle } from "lucide-react";
 
@@ -140,40 +142,56 @@ export default function CreateAttendance({
     fetchLastStatus();
   }, [userDetails.ReferenceID]);
 
-  const uploadToCloudinary = async (base64: string): Promise<string> => {
-    const imgData = new FormData();
-    imgData.append("file", base64);
-    imgData.append("upload_preset", "Xchire");
-    const res = await fetch("https://api.cloudinary.com/v1_1/dhczsyzcz/image/upload", { method: "POST", body: imgData });
-    const data = await res.json();
-    return data.secure_url;
-  };
-
   const handleCreate = async () => {
     if (!capturedImage) return toast.error("Please capture a photo first.");
     if (!locationAddress || locationAddress === "Fetching location...") return toast.error("Location not ready yet.");
     setLoading(true);
+    
+    const isOnline = navigator.onLine;
+
     try {
-      const photoURL = await uploadToCloudinary(capturedImage);
-      const payload = { 
-        ...formData, 
-        PhotoURL: photoURL, 
-        Location: locationAddress, 
-        Latitude: latitude, 
-        Longitude: longitude,
-        FaceData: faceData 
-      };
-      const response = await fetch("/api/ModuleSales/Activity/AddLog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "Failed to create attendance");
-      toast.success("Attendance recorded successfully!");
-      fetchAccountAction();
-      onOpenChangeAction(false);
-      setFormAction({ ReferenceID: userDetails.ReferenceID, Email: userDetails.Email, Type: "On Field", Status: "", PhotoURL: "", Remarks: "", TSM: "" });
-      setCapturedImage(null);
-    } catch (err) {
+      if (!isOnline) {
+        // Queue the log locally for later sync
+        const payload = { 
+          ...formData, 
+          PhotoURL: capturedImage, // Save the base64 image in the queue
+          Location: locationAddress, 
+          Latitude: latitude, 
+          Longitude: longitude,
+          FaceData: faceData 
+        };
+        await enqueuePendingLog(payload);
+        toast.success("Offline! Your attendance has been queued and will sync when you are back online.");
+        onOpenChangeAction(false);
+        setFormAction({ ReferenceID: userDetails.ReferenceID, Email: userDetails.Email, Type: "On Field", Status: "", PhotoURL: "", Remarks: "", TSM: "" });
+        setCapturedImage(null);
+      } else {
+        // Online: upload and submit immediately
+        const photoURL = await uploadToCloudinary(capturedImage);
+        const payload = { 
+          ...formData, 
+          PhotoURL: photoURL, 
+          Location: locationAddress, 
+          Latitude: latitude, 
+          Longitude: longitude,
+          FaceData: faceData 
+        };
+        const response = await fetch("/api/ModuleSales/Activity/AddLog", { 
+          method: "POST", 
+          headers: { "Content-Type": "application/json" }, 
+          body: JSON.stringify(payload) 
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || "Failed to create attendance");
+        toast.success("Attendance recorded successfully!");
+        fetchAccountAction();
+        onOpenChangeAction(false);
+        setFormAction({ ReferenceID: userDetails.ReferenceID, Email: userDetails.Email, Type: "On Field", Status: "", PhotoURL: "", Remarks: "", TSM: "" });
+        setCapturedImage(null);
+      }
+    } catch (err: any) {
       console.error(err);
-      toast.error("Error saving attendance.");
+      toast.error(err.message || "Error saving attendance.");
     }
     setLoading(false);
   };

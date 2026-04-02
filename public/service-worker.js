@@ -15,8 +15,8 @@ const STATIC_ASSETS = [
   "/fluxx.png",
   "/fluxx-512.png",
   // face-api model manifests (weights are large — cached on first use)
-  "/models/tiny_face_detector/model.json",
-  "/models/face_landmark68/model.json",
+  "/models/tiny_face_detector/tiny_face_detector_model.json",
+  "/models/face_landmark68/face_landmark_68_model.json",
 ];
 
 // ── Cacheable API patterns (GET only) ────────────────────────────────────────

@@ -9,11 +9,13 @@ import {
   incrementRetry,
   getPendingCount,
 } from "@/lib/offline-store";
+import { uploadToCloudinary } from "@/lib/cloudinary";
 
 const MAX_RETRIES = 5;
 
 export function useOfflineSync(onSyncComplete?: () => void) {
   const syncingRef = useRef(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const [pendingCount, setPendingCount] = useState(0);
   const [isOnline, setIsOnline] = useState(
@@ -37,17 +39,20 @@ export function useOfflineSync(onSyncComplete?: () => void) {
     if (syncingRef.current || !navigator.onLine) return;
 
     syncingRef.current = true;
+    setIsSyncing(true);
 
     let logs;
     try {
       logs = await getAllPendingLogs();
     } catch {
       syncingRef.current = false;
+      setIsSyncing(false);
       return;
     }
 
     if (logs.length === 0) {
       syncingRef.current = false;
+      setIsSyncing(false);
       return;
     }
 
@@ -62,10 +67,25 @@ export function useOfflineSync(onSyncComplete?: () => void) {
       }
 
       try {
+        // ① If the PhotoURL is still a base64 string, upload it to Cloudinary first
+        const payload = { ...log.payload } as any;
+        if (payload.PhotoURL && payload.PhotoURL.startsWith("data:image/")) {
+          try {
+            const uploadedUrl = await uploadToCloudinary(payload.PhotoURL);
+            payload.PhotoURL = uploadedUrl;
+          } catch (cloudinaryErr) {
+            console.error("Cloudinary upload failed during sync:", cloudinaryErr);
+            await incrementRetry(log.id);
+            failCount++;
+            continue; // Skip this log for now; try again next sync
+          }
+        }
+
+        // ② Send the updated payload to our local API
         const res = await fetch("/api/ModuleSales/Activity/AddLog", {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify(log.payload),
+          body:    JSON.stringify(payload),
         });
 
         if (res.ok || res.status === 409) {
@@ -83,6 +103,7 @@ export function useOfflineSync(onSyncComplete?: () => void) {
     }
 
     syncingRef.current = false;
+    setIsSyncing(false);
     await refreshCount();
 
     if (successCount > 0) {
@@ -125,5 +146,5 @@ export function useOfflineSync(onSyncComplete?: () => void) {
     };
   }, [syncNow, refreshCount]);
 
-  return { pendingCount, isOnline, syncNow };
+  return { pendingCount, isOnline, isSyncing, syncNow };
 }

@@ -13,6 +13,7 @@ import Select from "react-select";
 
 const ManualLocationPicker = dynamic(() => import("./manual-location-picker"), { ssr: false });
 import { enqueuePendingLog } from "@/lib/offline-store";
+import { uploadToCloudinary } from "@/lib/cloudinary";
 /* ── Types ─────────────────────────────────────────────────────────────────── */
 
 interface FormData {
@@ -226,83 +227,82 @@ export default function CreateSalesAttendance({
     }
   }, [open, clientType, userDetails.Role, userDetails.ReferenceID]);
 
-  /* ── Upload ── */
-  const uploadToCloudinary = async (base64: string) => {
-    const fd = new FormData();
-    fd.append("file", base64);
-    fd.append("upload_preset", "Xchire");
-    const res = await fetch("https://api.cloudinary.com/v1_1/dhczsyzcz/image/upload", {
-      method: "POST",
-      body: fd,
-    });
-    return (await res.json()).secure_url;
-  };
-
   /* ── Submit ── */
   const handleCreate = async () => {
-    if (!capturedImage) return toast.error("Capture photo first.");
-    if (!formData.Status) return toast.error("Status not determined.");
+    if (!capturedImage) return toast.error("Please capture a photo first.");
+    if (!clientType) return toast.error("Please select client type.");
+    if (clientType === "Existing Client" && !formData.SiteVisitAccount) {
+      return toast.error("Please select a company.");
+    }
+    if (locationAddress === "Fetching location...") return toast.error("Location not ready yet.");
 
     setLoading(true);
+    const isOnline = navigator.onLine;
+
     try {
-      let photoURL = "";
+      let photoURL = capturedImage;
 
-      // If offline, store a placeholder — photo upload requires network
-      if (!navigator.onLine) {
-        // Convert base64 to a smaller thumbnail for offline storage
-        photoURL = capturedImage!; // store base64 directly in IndexedDB for now
-      } else {
-        photoURL = await uploadToCloudinary(capturedImage!);
-      }
-      const payload = {
-        ...formData,
-        Type: "Client Visit",
-        PhotoURL: photoURL,
-        Location: locationAddress,
-        Latitude: manualLat ?? latitude,
-        Longitude: manualLng ?? longitude,
-        FaceData: faceData,
-      };
-
-      if (!navigator.onLine) {
-        // Queue for later sync
+      if (!isOnline) {
+        // Queue for later sync with base64 image
+        const payload = {
+          ...formData,
+          Type: "Client Visit",
+          PhotoURL: photoURL,
+          Location: locationAddress,
+          Latitude: manualLat ?? latitude,
+          Longitude: manualLng ?? longitude,
+          FaceData: faceData,
+        };
         await enqueuePendingLog(payload);
         toast.success("Saved offline. Will sync when connection is restored.");
-        fetchAccountAction();
         onOpenChangeAction(false);
-        // reset form...
-        return;
-      }
-      const res = await fetch("/api/ModuleSales/Activity/AddLog", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error("Failed to save attendance");
-      toast.success("Attendance created!");
-      fetchAccountAction();
-      setFormAction({
-        ReferenceID: userDetails.ReferenceID,
-        Email: userDetails.Email,
-        TSM: userDetails.TSM,
-        Type: "Client Visit",
-        Status: "",
-        PhotoURL: "",
-        Remarks: "",
-        SiteVisitAccount: "",
-      });
-      setCapturedImage(null);
-      onOpenChangeAction(false);
-    } catch (err) {
-      // Network error — queue offline
-      if (!navigator.onLine || (err instanceof TypeError && err.message.includes("fetch"))) {
-        await enqueuePendingLog({ ...formData, Location: locationAddress, Latitude: latitude, Longitude: longitude });
-        toast.success("Saved offline. Will sync when connection is restored.");
-        onOpenChangeAction(false);
+        setFormAction({
+          ReferenceID: userDetails.ReferenceID,
+          Email: userDetails.Email,
+          TSM: userDetails.TSM,
+          Type: "Client Visit",
+          Status: "",
+          PhotoURL: "",
+          Remarks: "",
+          SiteVisitAccount: "",
+        });
+        setCapturedImage(null);
       } else {
-        console.error(err);
-        toast.error("Error saving attendance.");
+        // Online: upload and submit immediately
+        photoURL = await uploadToCloudinary(capturedImage!);
+        const payload = {
+          ...formData,
+          Type: "Client Visit",
+          PhotoURL: photoURL,
+          Location: locationAddress,
+          Latitude: manualLat ?? latitude,
+          Longitude: manualLng ?? longitude,
+          FaceData: faceData,
+        };
+        const res = await fetch("/api/ModuleSales/Activity/AddLog", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("Failed to save attendance");
+        toast.success("Attendance created!");
+        fetchAccountAction();
+        setFormAction({
+          ReferenceID: userDetails.ReferenceID,
+          Email: userDetails.Email,
+          TSM: userDetails.TSM,
+          Type: "Client Visit",
+          Status: "",
+          PhotoURL: "",
+          Remarks: "",
+          SiteVisitAccount: "",
+        });
+        setCapturedImage(null);
+        onOpenChangeAction(false);
       }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "Error saving attendance.");
     }
     setLoading(false);
   };

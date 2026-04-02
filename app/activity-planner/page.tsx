@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import { useOfflineSync } from "@/hooks/useOfflineSync";
+import OfflineBanner from "@/components/OfflineBanner";
 
 
 // ── Weather Component ────────────────────────────────────────────────────────
@@ -855,7 +856,7 @@ function ActivityPage() {
     finally { setLoading(false); }
   };
 
-  const { pendingCount, isOnline, syncNow } = useOfflineSync(fetchAccountAction);
+  const { pendingCount, isOnline, isSyncing, syncNow } = useOfflineSync(fetchAccountAction);
 
   useEffect(() => { fetchAccountAction(); }, [userDetails, dateCreatedFilterRange]);
 
@@ -969,6 +970,7 @@ function ActivityPage() {
 
   return (
     <div className="fixed inset-0 flex flex-col bg-[#F9F6F4] overflow-hidden">
+      <OfflineBanner isOnline={isOnline} isSyncing={isSyncing} pendingCount={pendingCount} />
       {loading && posts.length === 0 && (
         <div className="absolute inset-0 z-50 bg-white flex items-center justify-center">
           <div className="flex flex-col items-center gap-3">
@@ -1027,31 +1029,6 @@ function ActivityPage() {
             </button>
           )}
         </>
-      )}
-
-      {/* Offline / Pending Sync Banner */}
-      {(!isOnline || pendingCount > 0) && (
-        <div
-          className={`flex-shrink-0 flex items-center justify-between px-4 py-2 text-[11px] font-semibold ${isOnline
-              ? "bg-amber-50 text-amber-700 border-t border-amber-100"
-              : "bg-slate-800 text-white"
-            }`}
-        >
-          <div className="flex items-center gap-2">
-            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? "bg-amber-400" : "bg-red-400 animate-pulse"}`} />
-            {isOnline
-              ? `${pendingCount} log${pendingCount !== 1 ? "s" : ""} pending sync`
-              : "You are offline — logs will sync when reconnected"}
-          </div>
-          {isOnline && pendingCount > 0 && (
-            <button
-              onClick={syncNow}
-              className="underline underline-offset-2 text-amber-700 font-bold"
-            >
-              Sync now
-            </button>
-          )}
-        </div>
       )}
 
       {/* Bottom Navigation */}
