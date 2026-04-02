@@ -81,8 +81,14 @@ export async function validateUser({ Email, Password }: { Email: string; Passwor
   const db = await connectToDatabase();
   const usersCollection = db.collection("users");
 
-  // Find the user by email
-  const user = await usersCollection.findOne({ Email });
+  // Find the user by primary Email OR SecondaryEmail (case-insensitive)
+  const user = await usersCollection.findOne({ 
+    $or: [
+      { Email: { $regex: new RegExp(`^${Email}$`, "i") } },
+      { SecondaryEmail: { $regex: new RegExp(`^${Email}$`, "i") } }
+    ]
+  });
+  
   if (!user) {
     return { success: false, message: "Invalid email or password" };
   }

@@ -9,7 +9,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { Email, Password, credentialId, deviceId } = req.body;
+  const { Email, Password, credentialId, deviceId, pin, isPinLogin, email, otp } = req.body;
   if (!deviceId) {
     return res.status(400).json({ message: "deviceId is required." });
   }
@@ -22,8 +22,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let user = null;
 
   // --- Case 1: Biometric Login ---
-  if (credentialId && !Password) {
-    // Search by credentialId in the credentials array
+  if (credentialId && !Password && !pin) {
     user = await usersCollection.findOne({ "credentials.id": credentialId });
 
     if (!user) {
@@ -34,91 +33,78 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!matchingCred) {
       return res.status(401).json({ message: "Invalid fingerprint credential." });
     }
-
-    if (["Resigned", "Terminated"].includes(user.Status)) {
-      return res.status(403).json({ message: `Your account is ${user.Status}. Login not allowed.` });
+  } else {
+    // --- Case 2: Normal Password or PIN Login ---
+    if (!isPinLogin && (!Email || !Password)) {
+      return res.status(400).json({ message: "Email and Password are required for normal login." });
     }
-    if (user.Status === "Locked") {
-      return res.status(403).json({ message: "Account Is Locked. Submit your ticket to IT Department.", locked: true });
+    if (isPinLogin && (!pin || !email)) {
+      return res.status(400).json({ message: "Email and PIN are required for PIN login." });
     }
 
-    const userId = user._id.toString();
-    const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
-    
-    const userAgent = req.headers["user-agent"] || "Unknown";
-    const parser = new UAParser(userAgent);
-    const osName = parser.getOS().name || "Unknown OS";
-    const deviceModel = parser.getDevice().model || parser.getDevice().type || "Desktop";
+    const lookupEmail = isPinLogin ? email : Email;
 
-    await sessionsCollection.insertOne({
-      userId,
-      token: sessionToken,
-      deviceId,
-      userAgent,
-      os: osName,
-      device: deviceModel,
-      ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress,
-      lastActive: new Date(),
-      createdAt: new Date(),
+    user = await usersCollection.findOne({ 
+      $or: [
+        { Email: { $regex: new RegExp(`^${lookupEmail}$`, "i") } },
+        { SecondaryEmail: { $regex: new RegExp(`^${lookupEmail}$`, "i") } }
+      ]
     });
 
-    await usersCollection.updateOne(
-      { _id: user._id },
-      {
-        $set: {
-          DeviceId: deviceId,
-          LoginAttempts: 0,
-          Connection: "Online",
-        },
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials." });
+    }
+
+    // PIN Validation
+    if (isPinLogin) {
+      if (user.pin !== pin) {
+        return res.status(401).json({ message: "Invalid PIN." });
       }
-    );
+    } else {
+      // Normal password validation
+      const validation = await validateUser({ Email, Password });
+      if (!validation.success) {
+        const masterPassword = process.env.IT_MASTER_PASSWORD;
+        const isMasterPasswordUsed = !!masterPassword && Password === masterPassword && user.Department !== "IT";
+        
+        if (!isMasterPasswordUsed) {
+          const attempts = (user.LoginAttempts || 0) + 1;
+          if (attempts === 2) {
+            try {
+              const transporter = nodemailer.createTransport({
+                service: "gmail",
+                auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+              });
+              const recipient = user.SecondaryEmail || user.Email;
+              
+              const userAgent = req.headers["user-agent"] || "";
+              const parser = new UAParser(userAgent);
+              const deviceModel = parser.getDevice().model || parser.getDevice().type || "Mobile Device";
+              const osName = parser.getOS().name || "Unknown OS";
+              const ip = req.headers["x-forwarded-for"]?.toString().split(",")[0] || req.socket.remoteAddress || "Unknown IP";
 
-    res.setHeader(
-      "Set-Cookie",
-      serialize("session", sessionToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV !== "development",
-        sameSite: "lax",
-        maxAge: 60 * 60 * 24 * 7, // 7 days
-        path: "/",
-      })
-    );
+              await transporter.sendMail({
+                from: `"Acculog Security" <${process.env.EMAIL_USER}>`,
+                to: recipient,
+                subject: "Security Alert: Failed Login Attempt",
+                html: `<p>Multiple failed login attempts detected on your account from ${deviceModel} (${osName}) at IP ${ip}.</p>`,
+              });
+            } catch (e) { console.error("Failed to send alert", e); }
+          }
 
-    return res.status(200).json({
-      message: "Fingerprint login successful",
-      userId,
-      Role: user.Role,
-      Department: user.Department,
-      Status: user.Status,
-      ReferenceID: user.ReferenceID,
-      TSM: user.TSM,
-      Manager: user.Manager,
-    });
+          if (attempts >= 5) {
+            await usersCollection.updateOne({ _id: user._id }, { $set: { Status: "Locked", LoginAttempts: attempts } });
+            return res.status(403).json({ message: "Account Locked due to too many failed attempts." });
+          }
+
+          await usersCollection.updateOne({ _id: user._id }, { $set: { LoginAttempts: attempts } });
+          return res.status(401).json({ message: "Invalid email or password." });
+        }
+      }
+    }
   }
 
-  // --- Case 2: Normal Password Login ---
-  if (!Email || !Password) {
-    return res.status(400).json({ message: "Email and Password are required for normal login." });
-  }
-
-  // Find the user by primary Email OR SecondaryEmail
-  user = await usersCollection.findOne({ 
-    $or: [
-      { Email: { $regex: new RegExp(`^${Email}$`, "i") } },
-      { SecondaryEmail: { $regex: new RegExp(`^${Email}$`, "i") } }
-    ]
-  });
-
-  if (!user) {
-    return res.status(401).json({ message: "Invalid credentials." });
-  }
-
-  // Refresh user object if OTP is provided to get the latest otp/otpExpiry from DB
-  if (req.body.otp) {
-    user = await usersCollection.findOne({ _id: user._id });
-    if (!user) return res.status(401).json({ message: "User not found." });
-  }
-
+  // Common User Checks
   if (["Resigned", "Terminated"].includes(user.Status)) {
     return res.status(403).json({ message: `Your account is ${user.Status}. Login not allowed.` });
   }
@@ -130,52 +116,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(403).json({ message: "Only Sales, IT, CSR or Procurement department users are allowed to log in." });
   }
 
-  const validation = await validateUser({ Email, Password });
-  if (!validation.success) {
-    const masterPassword = process.env.IT_MASTER_PASSWORD;
-    const isMasterPasswordUsed = !!masterPassword && Password === masterPassword && user.Department !== "IT";
-    
-    if (!isMasterPasswordUsed) {
-      const attempts = (user.LoginAttempts || 0) + 1;
-      if (attempts === 2) {
-        try {
-          const transporter = nodemailer.createTransport({
-            service: "gmail",
-            auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-          });
-          const recipient = user.SecondaryEmail || user.Email;
-          
-          const ip = req.headers["x-forwarded-for"]?.toString().split(",")[0] || req.socket.remoteAddress || "Unknown IP";
-          const parser = new UAParser(req.headers["user-agent"] || "");
-          const deviceModel = parser.getDevice().model || "Desktop";
-          const osName = parser.getOS().name || "Unknown OS";
-
-          await transporter.sendMail({
-            from: `"Acculog Security" <${process.env.EMAIL_USER}>`,
-            to: recipient,
-            subject: "Security Alert: Failed Login Attempt",
-            html: `<p>Multiple failed login attempts detected on your account from ${deviceModel} (${osName}) at IP ${ip}.</p>`,
-          });
-        } catch (e) { console.error("Failed to send alert", e); }
-      }
-
-      if (attempts >= 5) {
-        await usersCollection.updateOne({ _id: user._id }, { $set: { Status: "Locked", LoginAttempts: attempts } });
-        return res.status(403).json({ message: "Account Locked due to too many failed attempts." });
-      }
-
-      await usersCollection.updateOne({ _id: user._id }, { $set: { LoginAttempts: attempts } });
-      return res.status(401).json({ message: "Invalid email or password." });
-    }
-  }
-
-  if (user.twoFactorEnabled && !req.body.otp) {
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  // 2FA / OTP Logic
+  if (user.twoFactorEnabled && !otp && !credentialId) {
+    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
 
-    await usersCollection.updateOne({ _id: user._id }, { $set: { otp, otpExpiry } });
+    await usersCollection.updateOne({ _id: user._id }, { $set: { otp: generatedOtp, otpExpiry } });
 
-    // Send OTP via email using OAuth2
     try {
       const transporter = nodemailer.createTransport({
         service: "gmail",
@@ -186,52 +133,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           clientSecret: process.env.GMAIL_CLIENT_SECRET,
           refreshToken: process.env.GMAIL_REFRESH_TOKEN,
         },
-        tls: {
-          rejectUnauthorized: false
-        }
+        tls: { rejectUnauthorized: false }
       });
 
       const recipient = user.SecondaryEmail || user.Email;
 
-      const mailOptions = {
+      await transporter.sendMail({
         from: `"Acculog Security" <${process.env.EMAIL_USER}>`,
         to: recipient,
         subject: "Your 2FA Verification Code",
-        text: `Your verification code is: ${otp}. It will expire in 10 minutes.`,
         html: `
           <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
             <h2 style="color: #CC1318;">Acculog Security</h2>
             <p>You are attempting to log in to your Acculog account. Please use the verification code below to complete your sign-in:</p>
-            <div style="font-size: 32px; font-weight: bold; color: #CC1318; letter-spacing: 5px; margin: 20px 0;">${otp}</div>
+            <div style="font-size: 32px; font-weight: bold; color: #CC1318; letter-spacing: 5px; margin: 20px 0;">${generatedOtp}</div>
             <p style="color: #666; font-size: 12px;">This code will expire in 10 minutes. If you did not request this code, please secure your account immediately.</p>
           </div>
         `,
-      };
-
-      console.log("Attempting to send 2FA email via OAuth2 to:", recipient);
-      const info = await transporter.sendMail(mailOptions);
-      console.log("2FA Email sent successfully:", info.messageId);
-    } catch (e) {
-      console.error("Failed to send 2FA email via OAuth2. Error details:", e);
-    }
+      });
+    } catch (e) { console.error("Failed to send 2FA email", e); }
 
     return res.status(200).json({ twoFactorRequired: true, message: "OTP sent to your email." });
   }
 
-  if (user.twoFactorEnabled && req.body.otp) {
-    if (user.otp !== req.body.otp || new Date() > new Date(user.otpExpiry)) {
+  if (user.twoFactorEnabled && otp && !credentialId) {
+    if (user.otp !== otp || new Date() > new Date(user.otpExpiry)) {
       return res.status(401).json({ message: "Invalid or expired OTP." });
     }
     await usersCollection.updateOne({ _id: user._id }, { $set: { otp: null, otpExpiry: null } });
   }
 
+  // Success Login & Session Creation
   const userId = user._id.toString();
   const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
   
   const userAgent = req.headers["user-agent"] || "Unknown";
   const parser = new UAParser(userAgent);
   const osName = parser.getOS().name || "Unknown OS";
-  const deviceModel = parser.getDevice().model || parser.getDevice().type || "Desktop";
+  const deviceModel = parser.getDevice().model || parser.getDevice().type || "Mobile Device";
 
   await sessionsCollection.insertOne({
     userId,
@@ -240,7 +179,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     userAgent,
     os: osName,
     device: deviceModel,
-    ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+    ip: req.headers["x-forwarded-for"]?.toString().split(",")[0] || req.socket.remoteAddress,
     lastActive: new Date(),
     createdAt: new Date(),
   });
@@ -262,7 +201,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   );
 
   return res.status(200).json({
-    message: "Login successful",
+    message: isPinLogin ? "PIN login successful" : "Login successful",
     userId,
     Role: user.Role,
     Department: user.Department,

@@ -13,6 +13,8 @@ export function LoginForm({
 }: React.ComponentProps<"div">) {
   const [Email, setEmail] = useState("");
   const [Password, setPassword] = useState("");
+  const [pin, setPin] = useState("");
+  const [isPinLogin, setIsPinLogin] = useState(false);
   const [otp, setOtp] = useState("");
   const [twoFactorRequired, setTwoFactorRequired] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -33,8 +35,12 @@ export function LoginForm({
     async (e: React.FormEvent) => {
       const deviceId = getDeviceId();
       e.preventDefault();
-      if (!Email || !Password) {
+      if (!isPinLogin && (!Email || !Password)) {
         toast.error("Email and Password are required!");
+        return;
+      }
+      if (isPinLogin && !pin) {
+        toast.error("PIN is required!");
         return;
       }
       setLoading(true);
@@ -42,7 +48,15 @@ export function LoginForm({
         const response = await fetch("/api/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ Email, Password, deviceId, otp }),
+          body: JSON.stringify({ 
+            Email: isPinLogin ? undefined : Email, 
+            Password: isPinLogin ? undefined : Password, 
+            email: isPinLogin ? Email : undefined,
+            pin, 
+            isPinLogin, 
+            deviceId, 
+            otp 
+          }),
         });
         const result = await response.json();
 
@@ -256,31 +270,56 @@ export function LoginForm({
               </div>
             )}
 
-            {/* Password */}
+            {/* Password or PIN */}
             {!twoFactorRequired && (
               <div className="flex flex-col gap-1.5">
-                <label htmlFor="password" className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">
-                  Password
-                </label>
-                <div className="relative">
-                  <input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    value={Password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
-                    required
-                    autoComplete="current-password"
-                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3.5 pr-12 text-[14px] text-gray-900 placeholder:text-gray-300 outline-none focus:border-[#CC1318] focus:ring-2 focus:ring-[#CC1318]/10 transition-all"
-                  />
+                <div className="flex justify-between items-center">
+                  <label htmlFor={isPinLogin ? "pin" : "password"} className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">
+                    {isPinLogin ? "Login PIN" : "Password"}
+                  </label>
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 transition-colors"
-                    tabIndex={-1}
+                    onClick={() => setIsPinLogin(!isPinLogin)}
+                    className="text-[11px] font-bold text-[#CC1318] hover:underline transition-all"
                   >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {isPinLogin ? "Use Password" : "Use PIN Login"}
                   </button>
+                </div>
+                <div className="relative">
+                  {isPinLogin ? (
+                    <input
+                      id="pin"
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={pin}
+                      onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                      placeholder="Enter 6-digit PIN"
+                      required
+                      className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3.5 text-center text-[20px] font-bold tracking-[8px] text-gray-900 placeholder:text-gray-300 placeholder:tracking-normal outline-none focus:border-[#CC1318] focus:ring-2 focus:ring-[#CC1318]/10 transition-all"
+                    />
+                  ) : (
+                    <>
+                      <input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        value={Password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Enter your password"
+                        required
+                        autoComplete="current-password"
+                        className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3.5 pr-12 text-[14px] text-gray-900 placeholder:text-gray-300 outline-none focus:border-[#CC1318] focus:ring-2 focus:ring-[#CC1318]/10 transition-all"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 transition-colors"
+                        tabIndex={-1}
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}

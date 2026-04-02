@@ -130,6 +130,7 @@ interface UserDetails {
   credentials?: any[];
   twoFactorEnabled?: boolean;
   SecondaryEmail?: string;
+  pin?: string;
   TSM: string;
   Directories?: string[];
 }
@@ -677,7 +678,9 @@ function ProfileTab({
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [twoFactorLoading, setTwoFactorLoading] = useState(false);
   const [secondaryEmail, setSecondaryEmail] = useState(userDetails?.SecondaryEmail || "");
+  const [pin, setPin] = useState(userDetails?.pin || "");
   const [emailUpdating, setEmailUpdating] = useState(false);
+  const [pinUpdating, setPinUpdating] = useState(false);
 
   const fetchSessions = useCallback(async () => {
     setSessionsLoading(true);
@@ -702,7 +705,10 @@ function ProfileTab({
     if (userDetails?.SecondaryEmail) {
       setSecondaryEmail(userDetails.SecondaryEmail);
     }
-  }, [userDetails?.SecondaryEmail]);
+    if (userDetails?.pin) {
+      setPin(userDetails.pin);
+    }
+  }, [userDetails?.SecondaryEmail, userDetails?.pin]);
 
   const handleUpdateEmail = async () => {
     setEmailUpdating(true);
@@ -713,6 +719,30 @@ function ProfileTab({
       toast.error("Failed to update email");
     } finally {
       setEmailUpdating(false);
+    }
+  };
+
+  const handleUpdatePin = async () => {
+    if (!userId || pin.length !== 6) {
+      toast.error("PIN must be 6 digits");
+      return;
+    }
+    setPinUpdating(true);
+    try {
+      const res = await fetch("/api/profile-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, pin }),
+      });
+      if (res.ok) {
+        toast.success("Login PIN updated successfully");
+      } else {
+        throw new Error("Failed to update PIN");
+      }
+    } catch (e) {
+      toast.error("Failed to update PIN");
+    } finally {
+      setPinUpdating(false);
     }
   };
 
@@ -831,6 +861,37 @@ function ProfileTab({
                 className="bg-[#CC1318] text-white text-[11px] font-bold px-4 rounded-xl disabled:opacity-30 transition-all"
               >
                 {emailUpdating ? "..." : "Save"}
+              </button>
+            </div>
+          </div>
+
+          {/* Login PIN Setup */}
+          <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm flex flex-col gap-3">
+            <div className="flex items-center gap-4">
+              <div className="w-11 h-11 rounded-[14px] bg-[#FEF0F0] flex items-center justify-center flex-shrink-0">
+                <ShieldCheck size={20} className="text-[#CC1318]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold text-gray-800">Login PIN</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">Set a 6-digit PIN for faster login</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                placeholder="Set 6-digit PIN"
+                className="flex-1 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-[12px] font-bold tracking-[4px] outline-none focus:border-[#CC1318] transition-all"
+              />
+              <button
+                onClick={handleUpdatePin}
+                disabled={pinUpdating || pin.length !== 6 || pin === userDetails?.pin}
+                className="bg-[#CC1318] text-white text-[11px] font-bold px-4 rounded-xl disabled:opacity-30 transition-all"
+              >
+                {pinUpdating ? "..." : "Update PIN"}
               </button>
             </div>
           </div>
@@ -1017,6 +1078,7 @@ function ActivityPage() {
           credentials: data.credentials ?? [],
           twoFactorEnabled: data.twoFactorEnabled ?? false,
           SecondaryEmail: data.SecondaryEmail ?? "",
+          pin: data.pin ?? "",
           TSM: data.TSM ?? "",
           Directories: data.Directories ?? [],
         });
