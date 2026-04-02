@@ -23,6 +23,7 @@ export default async function updateProfile(req: NextApiRequest, res: NextApiRes
     profilePicture, 
     faceDescriptors, // bagong field para sa biometric registration
     credentials, // bagong field para sa WebAuthn biometrics
+    SecondaryEmail, // bagong field para sa backup notifications
   } = req.body;
 
   const targetId = id || userId;
@@ -49,6 +50,7 @@ export default async function updateProfile(req: NextApiRequest, res: NextApiRes
     if (profilePicture) updatedUser.profilePicture = profilePicture;
     if (faceDescriptors) updatedUser.faceDescriptors = faceDescriptors;
     if (credentials) updatedUser.credentials = credentials;
+    if (SecondaryEmail !== undefined) updatedUser.SecondaryEmail = SecondaryEmail;
 
     if (Password && Password.trim() !== "") {
       const hashedPassword = await bcrypt.hash(Password, 10);

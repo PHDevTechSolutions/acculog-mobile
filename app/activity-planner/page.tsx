@@ -129,6 +129,7 @@ interface UserDetails {
   faceDescriptors?: number[][];
   credentials?: any[];
   twoFactorEnabled?: boolean;
+  SecondaryEmail?: string;
   TSM: string;
   Directories?: string[];
 }
@@ -663,16 +664,20 @@ function ProfileTab({
   onLogout,
   onFaceRegister,
   onBiometricRegister,
+  onUpdateSecondaryEmail,
 }: {
   userDetails: UserDetails | null;
   userId: string | null | undefined;
   onLogout: () => void;
   onFaceRegister: () => void;
   onBiometricRegister: () => void;
+  onUpdateSecondaryEmail: (email: string) => void;
 }) {
   const [sessions, setSessions] = useState<any[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [twoFactorLoading, setTwoFactorLoading] = useState(false);
+  const [secondaryEmail, setSecondaryEmail] = useState(userDetails?.SecondaryEmail || "");
+  const [emailUpdating, setEmailUpdating] = useState(false);
 
   const fetchSessions = useCallback(async () => {
     setSessionsLoading(true);
@@ -692,6 +697,24 @@ function ProfileTab({
   useEffect(() => {
     fetchSessions();
   }, [fetchSessions]);
+
+  useEffect(() => {
+    if (userDetails?.SecondaryEmail) {
+      setSecondaryEmail(userDetails.SecondaryEmail);
+    }
+  }, [userDetails?.SecondaryEmail]);
+
+  const handleUpdateEmail = async () => {
+    setEmailUpdating(true);
+    try {
+      await onUpdateSecondaryEmail(secondaryEmail);
+      toast.success("Secondary email updated");
+    } catch (e) {
+      toast.error("Failed to update email");
+    } finally {
+      setEmailUpdating(false);
+    }
+  };
 
   const toggleTwoFactor = async () => {
     if (!userDetails) return;
@@ -783,6 +806,35 @@ function ProfileTab({
         {/* Security Section */}
         <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Settings & Security</p>
         <div className="flex flex-col gap-3 mb-5">
+          {/* Secondary Email Notification */}
+          <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm flex flex-col gap-3">
+            <div className="flex items-center gap-4">
+              <div className="w-11 h-11 rounded-[14px] bg-[#FFF0F0] flex items-center justify-center flex-shrink-0">
+                <Globe size={20} className="text-[#CC1318]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold text-gray-800">Notification Email</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">Receive 2FA codes on another email</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={secondaryEmail}
+                onChange={(e) => setSecondaryEmail(e.target.value)}
+                placeholder="backup@email.com"
+                className="flex-1 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-[12px] outline-none focus:border-[#CC1318] transition-all"
+              />
+              <button
+                onClick={handleUpdateEmail}
+                disabled={emailUpdating || secondaryEmail === userDetails?.SecondaryEmail}
+                className="bg-[#CC1318] text-white text-[11px] font-bold px-4 rounded-xl disabled:opacity-30 transition-all"
+              >
+                {emailUpdating ? "..." : "Save"}
+              </button>
+            </div>
+          </div>
+
           {/* 2FA Toggle */}
           <div className="w-full flex items-center gap-4 bg-white rounded-2xl border border-gray-100 px-4 py-4 text-left shadow-sm">
             <div className="w-11 h-11 rounded-[14px] bg-[#EEF7F2] flex items-center justify-center flex-shrink-0">
@@ -964,6 +1016,7 @@ function ActivityPage() {
           profilePicture: data.profilePicture ?? "", faceDescriptors: data.faceDescriptors ?? null,
           credentials: data.credentials ?? [],
           twoFactorEnabled: data.twoFactorEnabled ?? false,
+          SecondaryEmail: data.SecondaryEmail ?? "",
           TSM: data.TSM ?? "",
           Directories: data.Directories ?? [],
         });
@@ -1181,6 +1234,25 @@ function ActivityPage() {
     }
   };
 
+  const handleUpdateSecondaryEmail = async (email: string) => {
+    if (!userId) return;
+    try {
+      const res = await fetch("/api/profile-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, SecondaryEmail: email }),
+      });
+      if (res.ok) {
+        setUserDetails(prev => prev ? { ...prev, SecondaryEmail: email } : null);
+      } else {
+        throw new Error("Failed to update email");
+      }
+    } catch (err) {
+      console.error(err);
+      throw err;
+    }
+  };
+
   const renderActiveTab = () => {
     switch (activeTab) {
       case "home":
@@ -1190,7 +1262,7 @@ function ActivityPage() {
       case "reports":
         return <ReportsTab monthlyStats={monthlyStats} allLogs={allVisibleAccounts} userId={userId} />;
       case "profile":
-        return <ProfileTab userDetails={userDetails} userId={userId} onLogout={handleLogout} onFaceRegister={() => setFaceRegisterOpen(true)} onBiometricRegister={handleBiometricRegister} />;
+        return <ProfileTab userDetails={userDetails} userId={userId} onLogout={handleLogout} onFaceRegister={() => setFaceRegisterOpen(true)} onBiometricRegister={handleBiometricRegister} onUpdateSecondaryEmail={handleUpdateSecondaryEmail} />;
       default:
         return null;
     }
