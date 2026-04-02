@@ -10,62 +10,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const { Email, Password, credentialId, deviceId } = req.body;
-  if (!Email || !deviceId) {
-    return res.status(400).json({ message: "Email and deviceId are required." });
+  if (!deviceId) {
+    return res.status(400).json({ message: "deviceId is required." });
   }
 
   const db = await connectToDatabase();
   const usersCollection = db.collection("users");
   const securityAlerts = db.collection("security_alerts");
 
-  // Find the user by email
-  const user = await usersCollection.findOne({ Email });
-  if (!user) {
-    return res.status(401).json({ message: "Invalid credentials." });
-  }
+  let user = null;
 
-  /* =========================================
-     ACCOUNT STATUS CHECK
-  ========================================= */
-
-  if (["Resigned", "Terminated"].includes(user.Status)) {
-    return res.status(403).json({
-      message: `Your account is ${user.Status}. Login not allowed.`,
-    });
-  }
-
-  if (user.Status === "Locked") {
-    return res.status(403).json({
-      message: "Account Is Locked. Submit your ticket to IT Department.",
-      locked: true,
-    });
-  }
-
-  /* =========================================
-     DEPARTMENT & ROLE CHECK
-  ========================================= */
-
-  if (user.Department !== "Sales" && user.Department !== "IT" && user.Department !== "CSR") {
-    return res.status(403).json({
-      message: "Only Sales, IT, or CSR department users are allowed to log in.",
-    });
-  }
-
-  // --- WebAuthn (Fingerprint) Login ---
+  // --- Case 1: Biometric Login (Email might be missing) ---
   if (credentialId && !Password) {
-    const storedCredId = user?.credentials?.[0]?.id;
-    if (!storedCredId) {
-      return res.status(400).json({ message: "No WebAuthn credential found for this user." });
+    // Search by credentialId if Email is missing
+    if (Email) {
+      user = await usersCollection.findOne({ Email });
+    } else {
+      user = await usersCollection.findOne({ "credentials.id": credentialId });
     }
 
-    if (storedCredId !== credentialId) {
+    if (!user) {
+      return res.status(401).json({ message: "Invalid biometric credential or user not found." });
+    }
+
+    const storedCredId = user?.credentials?.[0]?.id;
+    if (!storedCredId || storedCredId !== credentialId) {
       return res.status(401).json({ message: "Invalid fingerprint credential." });
+    }
+
+    /* =========================================
+       ACCOUNT STATUS CHECK
+    ========================================= */
+    if (["Resigned", "Terminated"].includes(user.Status)) {
+      return res.status(403).json({ message: `Your account is ${user.Status}. Login not allowed.` });
+    }
+    if (user.Status === "Locked") {
+      return res.status(403).json({ message: "Account Is Locked. Submit your ticket to IT Department.", locked: true });
     }
 
     // Fingerprint (WebAuthn) is valid, save deviceId and set cookie
     const userId = user._id.toString();
     await usersCollection.updateOne(
-      { Email },
+      { _id: user._id },
       {
         $set: {
           DeviceId: deviceId,
@@ -95,6 +81,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ReferenceID: user.ReferenceID,
       TSM: user.TSM,
       Manager: user.Manager,
+    });
+  }
+
+  // --- Case 2: Normal Password Login ---
+  if (!Email || !Password) {
+    return res.status(400).json({ message: "Email and Password are required for normal login." });
+  }
+
+  // Find the user by email
+  user = await usersCollection.findOne({ Email });
+  if (!user) {
+    return res.status(401).json({ message: "Invalid credentials." });
+  }
+
+  /* =========================================
+     ACCOUNT STATUS CHECK
+  ========================================= */
+
+  if (["Resigned", "Terminated"].includes(user.Status)) {
+    return res.status(403).json({
+      message: `Your account is ${user.Status}. Login not allowed.`,
+    });
+  }
+
+  if (user.Status === "Locked") {
+    return res.status(403).json({
+      message: "Account Is Locked. Submit your ticket to IT Department.",
+      locked: true,
+    });
+  }
+
+  /* =========================================
+     DEPARTMENT & ROLE CHECK
+  ========================================= */
+
+  if (user.Department !== "Sales" && user.Department !== "IT" && user.Department !== "CSR") {
+    return res.status(403).json({
+      message: "Only Sales, IT, or CSR department users are allowed to log in.",
     });
   }
 

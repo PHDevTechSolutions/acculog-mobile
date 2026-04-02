@@ -1005,6 +1005,7 @@ function ActivityPage() {
         authenticatorSelection: {
           authenticatorAttachment: "platform", // This forces fingerprint/face/pin on device
           userVerification: "required",
+          residentKey: "required", // Required for discoverable credentials (login without email)
         },
         timeout: 60000,
         attestation: "none",

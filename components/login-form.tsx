@@ -61,11 +61,6 @@ export function LoginForm({
   );
 
   const handleBiometricLogin = useCallback(async () => {
-    if (!Email) {
-      toast.error("Please enter your email first to use biometrics.");
-      return;
-    }
-
     setBiometricLoading(true);
     const deviceId = getDeviceId();
 
@@ -75,6 +70,7 @@ export function LoginForm({
       window.crypto.getRandomValues(challenge);
 
       // 2. Request credential from device
+      // Note: We don't provide allowCredentials, which triggers "Discoverable Credentials" flow
       const credential = await navigator.credentials.get({
         publicKey: {
           challenge,
@@ -85,12 +81,11 @@ export function LoginForm({
 
       if (!credential) throw new Error("Biometric authentication failed.");
 
-      // 3. Send to API
+      // 3. Send to API (without Email, backend will find user by credential.id)
       const response = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          Email, 
           credentialId: credential.id, 
           deviceId 
         }),
@@ -113,7 +108,7 @@ export function LoginForm({
     } finally {
       setBiometricLoading(false);
     }
-  }, [Email, router]);
+  }, [router]);
 
   return (
     <div className={cn("min-h-screen w-full flex", className)} {...props}>
@@ -282,6 +277,15 @@ export function LoginForm({
             </button>
 
             {/* Biometric login button */}
+            <div className="relative my-2">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-gray-100" />
+              </div>
+              <div className="relative flex justify-center text-[11px] uppercase tracking-widest">
+                <span className="bg-[#F9F6F4] px-3 text-gray-300 font-semibold">Or</span>
+              </div>
+            </div>
+
             <button
               type="button"
               onClick={handleBiometricLogin}
@@ -290,7 +294,7 @@ export function LoginForm({
                 "w-full rounded-2xl py-4 text-[15px] font-semibold flex items-center justify-center gap-2 transition-all border border-gray-200",
                 loading || biometricLoading
                   ? "bg-gray-50 text-gray-300 cursor-not-allowed"
-                  : "bg-white text-gray-700 hover:bg-gray-50 active:scale-[0.98]",
+                  : "bg-white text-gray-700 hover:bg-gray-50 active:scale-[0.98] hover:border-gray-300",
               ].join(" ")}
             >
               {biometricLoading ? (
@@ -301,7 +305,7 @@ export function LoginForm({
               ) : (
                 <>
                   <Fingerprint size={18} className="text-[#CC1318]" />
-                  Sign in with Biometrics
+                  Login with Fingerprint
                 </>
               )}
             </button>
