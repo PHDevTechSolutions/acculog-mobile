@@ -23,6 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // --- Case 1: Biometric Login ---
   if (credentialId && !Password) {
+    // Search by credentialId in the credentials array
     user = await usersCollection.findOne({ "credentials.id": credentialId });
 
     if (!user) {
@@ -78,7 +79,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         httpOnly: true,
         secure: process.env.NODE_ENV !== "development",
         sameSite: "lax",
-        maxAge: 60 * 60 * 24 * 7,
+        maxAge: 60 * 60 * 24 * 7, // 7 days
         path: "/",
       })
     );
@@ -100,13 +101,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ message: "Email and Password are required for normal login." });
   }
 
-  user = await usersCollection.findOne({ Email });
+  // Find the user by primary Email OR SecondaryEmail
+  user = await usersCollection.findOne({ 
+    $or: [
+      { Email: { $regex: new RegExp(`^${Email}$`, "i") } },
+      { SecondaryEmail: { $regex: new RegExp(`^${Email}$`, "i") } }
+    ]
+  });
+
   if (!user) {
     return res.status(401).json({ message: "Invalid credentials." });
   }
 
+  // Refresh user object if OTP is provided to get the latest otp/otpExpiry from DB
   if (req.body.otp) {
-    user = await usersCollection.findOne({ Email });
+    user = await usersCollection.findOne({ _id: user._id });
     if (!user) return res.status(401).json({ message: "User not found." });
   }
 
@@ -117,8 +126,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(403).json({ message: "Account Is Locked. Submit your ticket to IT Department.", locked: true });
   }
 
-  if (user.Department !== "Sales" && user.Department !== "IT" && user.Department !== "CSR") {
-    return res.status(403).json({ message: "Only Sales, IT, or CSR department users are allowed to log in." });
+  if (user.Department !== "Sales" && user.Department !== "IT" && user.Department !== "CSR" && user.Department !== "Procurement") {
+    return res.status(403).json({ message: "Only Sales, IT, CSR or Procurement department users are allowed to log in." });
   }
 
   const validation = await validateUser({ Email, Password });
@@ -134,8 +143,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             service: "gmail",
             auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
           });
-          const recipients = [user.Email];
-          if (user.SecondaryEmail) recipients.push(user.SecondaryEmail);
+          const recipient = user.SecondaryEmail || user.Email;
           
           const ip = req.headers["x-forwarded-for"]?.toString().split(",")[0] || req.socket.remoteAddress || "Unknown IP";
           const parser = new UAParser(req.headers["user-agent"] || "");
@@ -144,7 +152,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
           await transporter.sendMail({
             from: `"Acculog Security" <${process.env.EMAIL_USER}>`,
-            to: recipients.join(", "),
+            to: recipient,
             subject: "Security Alert: Failed Login Attempt",
             html: `<p>Multiple failed login attempts detected on your account from ${deviceModel} (${osName}) at IP ${ip}.</p>`,
           });
@@ -152,11 +160,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       if (attempts >= 5) {
-        await usersCollection.updateOne({ Email }, { $set: { Status: "Locked", LoginAttempts: attempts } });
+        await usersCollection.updateOne({ _id: user._id }, { $set: { Status: "Locked", LoginAttempts: attempts } });
         return res.status(403).json({ message: "Account Locked due to too many failed attempts." });
       }
 
-      await usersCollection.updateOne({ Email }, { $set: { LoginAttempts: attempts } });
+      await usersCollection.updateOne({ _id: user._id }, { $set: { LoginAttempts: attempts } });
       return res.status(401).json({ message: "Invalid email or password." });
     }
   }
@@ -167,21 +175,45 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     await usersCollection.updateOne({ _id: user._id }, { $set: { otp, otpExpiry } });
 
+    // Send OTP via email using OAuth2
     try {
       const transporter = nodemailer.createTransport({
         service: "gmail",
-        auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+        auth: {
+          type: "OAuth2",
+          user: process.env.EMAIL_USER,
+          clientId: process.env.GMAIL_CLIENT_ID,
+          clientSecret: process.env.GMAIL_CLIENT_SECRET,
+          refreshToken: process.env.GMAIL_REFRESH_TOKEN,
+        },
+        tls: {
+          rejectUnauthorized: false
+        }
       });
-      const recipients = [user.Email];
-      if (user.SecondaryEmail) recipients.push(user.SecondaryEmail);
 
-      await transporter.sendMail({
+      const recipient = user.SecondaryEmail || user.Email;
+
+      const mailOptions = {
         from: `"Acculog Security" <${process.env.EMAIL_USER}>`,
-        to: recipients.join(", "),
+        to: recipient,
         subject: "Your 2FA Verification Code",
-        html: `<h2>Acculog Security</h2><p>Your verification code is:</p><h1 style="font-size: 32px; color: #CC1318;">${otp}</h1>`,
-      });
-    } catch (e) { console.error("Failed to send 2FA email", e); }
+        text: `Your verification code is: ${otp}. It will expire in 10 minutes.`,
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+            <h2 style="color: #CC1318;">Acculog Security</h2>
+            <p>You are attempting to log in to your Acculog account. Please use the verification code below to complete your sign-in:</p>
+            <div style="font-size: 32px; font-weight: bold; color: #CC1318; letter-spacing: 5px; margin: 20px 0;">${otp}</div>
+            <p style="color: #666; font-size: 12px;">This code will expire in 10 minutes. If you did not request this code, please secure your account immediately.</p>
+          </div>
+        `,
+      };
+
+      console.log("Attempting to send 2FA email via OAuth2 to:", recipient);
+      const info = await transporter.sendMail(mailOptions);
+      console.log("2FA Email sent successfully:", info.messageId);
+    } catch (e) {
+      console.error("Failed to send 2FA email via OAuth2. Error details:", e);
+    }
 
     return res.status(200).json({ twoFactorRequired: true, message: "OTP sent to your email." });
   }
@@ -214,7 +246,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
 
   await usersCollection.updateOne(
-    { Email },
+    { _id: user._id },
     { $set: { DeviceId: deviceId, LoginAttempts: 0, Status: "Active", Connection: "Online" } }
   );
 
