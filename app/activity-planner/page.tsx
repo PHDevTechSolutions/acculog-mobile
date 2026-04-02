@@ -824,7 +824,7 @@ function ActivityPage() {
   }, [userDetails]);
 
 
-  const fetchAccountAction = async () => {
+  const fetchAccountAction = useCallback(async () => {
     if (!userDetails) return;
     setLoading(true);
     try {
@@ -854,7 +854,7 @@ function ActivityPage() {
       setPosts(allLogs);
     } catch { setPosts([]); }
     finally { setLoading(false); }
-  };
+  }, [userDetails, dateCreatedFilterRange]);
 
   const { pendingCount, isOnline, isSyncing, syncNow } = useOfflineSync(fetchAccountAction);
 

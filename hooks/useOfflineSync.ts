@@ -17,6 +17,12 @@ export function useOfflineSync(onSyncComplete?: () => void) {
   const syncingRef = useRef(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // Keep callback in a ref to avoid triggering re-syncs if it's unstable
+  const onSyncCompleteRef = useRef(onSyncComplete);
+  useEffect(() => {
+    onSyncCompleteRef.current = onSyncComplete;
+  }, [onSyncComplete]);
+
   const [pendingCount, setPendingCount] = useState(0);
   const [isOnline, setIsOnline] = useState(
     typeof navigator !== "undefined" ? navigator.onLine : true
@@ -110,7 +116,7 @@ export function useOfflineSync(onSyncComplete?: () => void) {
       toast.success(
         `${successCount} offline log${successCount > 1 ? "s" : ""} synced!`
       );
-      onSyncComplete?.();
+      onSyncCompleteRef.current?.();
     }
 
     if (failCount > 0) {
@@ -118,7 +124,7 @@ export function useOfflineSync(onSyncComplete?: () => void) {
         `${failCount} log${failCount > 1 ? "s" : ""} failed to sync. Will retry later.`
       );
     }
-  }, [onSyncComplete, refreshCount]);
+  }, [refreshCount]); // No longer depends on onSyncComplete
 
   // ── Event listeners ───────────────────────────────────────────────────────
 
