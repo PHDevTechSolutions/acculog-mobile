@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { v4 as uuidv4 } from "uuid";
-import { Eye, EyeOff, ArrowRight, Shield } from "lucide-react";
+import { Eye, EyeOff, ArrowRight, Shield, Fingerprint } from "lucide-react";
 
 export function LoginForm({
   className,
@@ -14,6 +14,7 @@ export function LoginForm({
   const [Email, setEmail] = useState("");
   const [Password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [biometricLoading, setBiometricLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
@@ -58,6 +59,61 @@ export function LoginForm({
     },
     [Email, Password, router]
   );
+
+  const handleBiometricLogin = useCallback(async () => {
+    if (!Email) {
+      toast.error("Please enter your email first to use biometrics.");
+      return;
+    }
+
+    setBiometricLoading(true);
+    const deviceId = getDeviceId();
+
+    try {
+      // 1. Get challenge from local (standard WebAuthn)
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+
+      // 2. Request credential from device
+      const credential = await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          rpId: window.location.hostname,
+          userVerification: "required",
+        }
+      }) as any;
+
+      if (!credential) throw new Error("Biometric authentication failed.");
+
+      // 3. Send to API
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          Email, 
+          credentialId: credential.id, 
+          deviceId 
+        }),
+      });
+
+      const result = await response.json();
+      if (response.ok && result.userId) {
+        toast.success("Biometric login successful!");
+        setTimeout(() => {
+          router.push(`/activity-planner?id=${encodeURIComponent(result.userId)}`);
+        }, 800);
+      } else {
+        toast.error(result.message || "Biometric login failed!");
+      }
+    } catch (err: any) {
+      console.error("Biometric login error:", err);
+      if (err.name !== "NotAllowedError") {
+        toast.error(err.message || "An error occurred during biometric login.");
+      }
+    } finally {
+      setBiometricLoading(false);
+    }
+  }, [Email, router]);
 
   return (
     <div className={cn("min-h-screen w-full flex", className)} {...props}>
@@ -204,10 +260,10 @@ export function LoginForm({
             {/* Submit button */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || biometricLoading}
               className={[
                 "mt-2 w-full rounded-2xl py-4 text-[15px] font-semibold flex items-center justify-center gap-2 transition-all",
-                loading
+                loading || biometricLoading
                   ? "bg-gray-100 text-gray-300 cursor-not-allowed"
                   : "bg-[#CC1318] text-white hover:bg-[#A8100F] active:scale-[0.98] shadow-lg shadow-red-200",
               ].join(" ")}
@@ -221,6 +277,31 @@ export function LoginForm({
                 <>
                   Sign In
                   <ArrowRight size={16} />
+                </>
+              )}
+            </button>
+
+            {/* Biometric login button */}
+            <button
+              type="button"
+              onClick={handleBiometricLogin}
+              disabled={loading || biometricLoading}
+              className={[
+                "w-full rounded-2xl py-4 text-[15px] font-semibold flex items-center justify-center gap-2 transition-all border border-gray-200",
+                loading || biometricLoading
+                  ? "bg-gray-50 text-gray-300 cursor-not-allowed"
+                  : "bg-white text-gray-700 hover:bg-gray-50 active:scale-[0.98]",
+              ].join(" ")}
+            >
+              {biometricLoading ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-gray-200 border-t-[#CC1318] rounded-full animate-spin" />
+                  Verifying...
+                </>
+              ) : (
+                <>
+                  <Fingerprint size={18} className="text-[#CC1318]" />
+                  Sign in with Biometrics
                 </>
               )}
             </button>

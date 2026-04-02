@@ -1,12 +1,13 @@
 import React from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { MapPin, Calendar, Clock, User, FileText, Building2, ArrowLeft, LogIn, LogOut, Navigation } from "lucide-react";
+import { MapPin, Calendar, Clock, User, FileText, Building2, ArrowLeft, LogIn, LogOut, Navigation, Camera } from "lucide-react";
 
 interface ActivityLog {
   ReferenceID: string;
   Type: string;
   Status: string;
   Location: string;
+  PhotoURL?: string;
   date_created: string;
   Remarks: string;
   SiteVisitAccount: string | null;
@@ -137,6 +138,23 @@ export default function ActivityDialog({ open, onOpenChange, selectedEvent, user
                   <p className="text-[12px] text-gray-700 leading-snug">{selectedEvent.Location || "No location recorded"}</p>
                 </div>
               </div>
+
+              {/* Photo Verification */}
+              {selectedEvent.PhotoURL && (
+                <div className="bg-white rounded-2xl border border-gray-100 p-1 flex flex-col">
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-50">
+                    <Camera size={13} className="text-[#CC1318]" />
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Photo Verification</p>
+                  </div>
+                  <div className="relative aspect-[4/3] rounded-xl overflow-hidden mt-1">
+                    <img 
+                      src={selectedEvent.PhotoURL} 
+                      alt="Attendance verification" 
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Remarks */}
               {selectedEvent.Remarks && (

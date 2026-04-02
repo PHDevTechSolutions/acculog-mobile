@@ -19,7 +19,7 @@ import {
   MapPin, X, CalendarCheck, ChevronLeft, ChevronRight,
   MapPinCheck, Building2, Home, BarChart3, User,
   LogIn, LogOut, TrendingUp, Plus, FileSpreadsheet, CalendarIcon, Clock,
-  ChevronRight as ArrowRight, Power, Cloud, Sun, CloudRain, CloudLightning, Wind, Info
+  ChevronRight as ArrowRight, Power, Cloud, Sun, CloudRain, CloudLightning, Wind, Info, Fingerprint
 } from "lucide-react";
 
 import { useOfflineSync } from "@/hooks/useOfflineSync";
@@ -126,6 +126,7 @@ interface UserDetails {
   ReferenceID: string;
   profilePicture?: string;
   faceDescriptors?: number[][];
+  credentials?: any[];
   TSM: string;
   Directories?: string[];
 }
@@ -659,15 +660,19 @@ function ProfileTab({
   userId,
   onLogout,
   onFaceRegister,
+  onBiometricRegister,
 }: {
   userDetails: UserDetails | null;
   userId: string | null | undefined;
   onLogout: () => void;
   onFaceRegister: () => void;
+  onBiometricRegister: () => void;
 }) {
   const initials = userDetails
     ? `${userDetails.Firstname[0] ?? ""}${userDetails.Lastname[0] ?? ""}`.toUpperCase()
     : "?";
+
+  const hasBiometrics = (userDetails?.faceDescriptors && userDetails.faceDescriptors.length > 0) || (userDetails?.credentials && userDetails.credentials.length > 0);
 
   const fields = userDetails ? [
     { label: "Email", value: userDetails.Email },
@@ -675,11 +680,11 @@ function ProfileTab({
     { label: "Department", value: userDetails.Department },
     { label: "Company", value: userDetails.Company ?? "—" },
     { label: "Reference ID", value: userDetails.ReferenceID },
-    { label: "Biometrics", value: userDetails.faceDescriptors ? "Registered" : "Not Registered" },
+    { label: "Biometrics", value: hasBiometrics ? "Registered" : "Not Registered" },
   ] : [];
 
   return (
-    <div className="flex flex-col min-h-full">
+    <div className="flex flex-col h-full overflow-y-auto pb-32">
       {/* Header */}
       <div
         className="px-5 pt-12 pb-10 flex-shrink-0 flex flex-col items-center"
@@ -698,7 +703,7 @@ function ProfileTab({
         <p className="text-white/65 text-[12px] mt-1">{userDetails?.Role ?? "—"}</p>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 pt-5 pb-28">
+      <div className="px-4 pt-5 pb-5">
         {/* User info */}
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden mb-5">
           {fields.map((f, i) => (
@@ -721,9 +726,25 @@ function ProfileTab({
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-[13px] font-semibold text-gray-800">Face Registration</p>
-              <p className="text-[11px] text-gray-400 mt-0.5">{userDetails?.faceDescriptors ? "Update your biometric data" : "Register your face for verification"}</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">{userDetails?.faceDescriptors ? "Update your face biometric data" : "Register your face for verification"}</p>
             </div>
             <div className="w-7 h-7 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0 group-hover:bg-[#CC1318] transition-colors">
+              <ArrowRight size={13} className="text-gray-400 group-hover:text-white transition-colors" />
+            </div>
+          </button>
+
+          <button
+            onClick={onBiometricRegister}
+            className="w-full flex items-center gap-4 bg-white rounded-2xl border border-gray-100 px-4 py-4 text-left hover:border-[#CC1318]/30 hover:bg-[#FFF8F8] active:scale-[0.98] transition-all group shadow-sm"
+          >
+            <div className="w-11 h-11 rounded-[14px] bg-[#E6F1FB] flex items-center justify-center flex-shrink-0 group-hover:bg-[#185FA5] transition-colors">
+              <Fingerprint size={20} className="text-[#185FA5] group-hover:text-white transition-colors" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-semibold text-gray-800">Fingerprint / Biometrics</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">{userDetails?.credentials && userDetails.credentials.length > 0 ? "Update your fingerprint data" : "Register fingerprint for faster login"}</p>
+            </div>
+            <div className="w-7 h-7 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0 group-hover:bg-[#185FA5] transition-colors">
               <ArrowRight size={13} className="text-gray-400 group-hover:text-white transition-colors" />
             </div>
           </button>
@@ -777,6 +798,7 @@ function ActivityPage() {
   const [createSalesAttendanceOpen, setCreateSalesAttendanceOpen] = useState(false);
   const [faceRegisterOpen, setFaceRegisterOpen] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [biometricRegistering, setBiometricRegistering] = useState(false);
 
 
   const [formData, setFormData] = useState<FormData>({
@@ -810,6 +832,7 @@ function ActivityPage() {
           Email: data.Email ?? "", Role: data.Role ?? "", Department: data.Department ?? "",
           Company: data.Company ?? "", ReferenceID: data.ReferenceID ?? "",
           profilePicture: data.profilePicture ?? "", faceDescriptors: data.faceDescriptors ?? null,
+          credentials: data.credentials ?? [],
           TSM: data.TSM ?? "",
           Directories: data.Directories ?? [],
         });
@@ -953,6 +976,79 @@ function ActivityPage() {
     }
   };
 
+  const handleBiometricRegister = async () => {
+    if (!userId || !userDetails) return;
+    
+    if (biometricRegistering) return;
+    setBiometricRegistering(true);
+
+    try {
+      // 1. Get registration options from server (or generate locally for WebAuthn)
+      // For simplicity, we use a basic WebAuthn implementation
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+      
+      const userID = userDetails.ReferenceID || userDetails.Email;
+      
+      const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
+        challenge,
+        rp: {
+          name: "Acculog System",
+          id: window.location.hostname,
+        },
+        user: {
+          id: Uint8Array.from(userID, c => c.charCodeAt(0)),
+          name: userDetails.Email,
+          displayName: `${userDetails.Firstname} ${userDetails.Lastname}`,
+        },
+        pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+        authenticatorSelection: {
+          authenticatorAttachment: "platform", // This forces fingerprint/face/pin on device
+          userVerification: "required",
+        },
+        timeout: 60000,
+        attestation: "none",
+      };
+
+      const credential = await navigator.credentials.create({
+        publicKey: publicKeyCredentialCreationOptions,
+      }) as any;
+
+      if (!credential) throw new Error("Failed to create credential");
+
+      // 2. Send the credential info to profile-update API
+      const res = await fetch("/api/profile-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          userId, 
+          credentials: [{
+            id: credential.id,
+            type: credential.type,
+            rawId: Array.from(new Uint8Array(credential.rawId)),
+          }]
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to save biometrics");
+      
+      toast.success("Biometrics registered successfully!");
+      
+      // Refresh user details
+      const userRes = await fetch(`/api/user?id=${encodeURIComponent(userId)}`);
+      const userData = await userRes.json();
+      setUserDetails(prev => prev ? { ...prev, credentials: userData.credentials } : null);
+
+    } catch (err: any) {
+      console.error("Biometric error:", err);
+      if (err.name !== "NotAllowedError") {
+        toast.error(err.message || "Error registering biometrics.");
+      }
+    } finally {
+      setBiometricRegistering(false);
+    }
+  };
+
   const renderActiveTab = () => {
     switch (activeTab) {
       case "home":
@@ -962,7 +1058,7 @@ function ActivityPage() {
       case "reports":
         return <ReportsTab monthlyStats={monthlyStats} allLogs={allVisibleAccounts} userId={userId} />;
       case "profile":
-        return <ProfileTab userDetails={userDetails} userId={userId} onLogout={handleLogout} onFaceRegister={() => setFaceRegisterOpen(true)} />;
+        return <ProfileTab userDetails={userDetails} userId={userId} onLogout={handleLogout} onFaceRegister={() => setFaceRegisterOpen(true)} onBiometricRegister={handleBiometricRegister} />;
       default:
         return null;
     }
