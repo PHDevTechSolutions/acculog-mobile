@@ -13,6 +13,8 @@ export function LoginForm({
 }: React.ComponentProps<"div">) {
   const [Email, setEmail] = useState("");
   const [Password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
+  const [twoFactorRequired, setTwoFactorRequired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [biometricLoading, setBiometricLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -40,9 +42,16 @@ export function LoginForm({
         const response = await fetch("/api/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ Email, Password, deviceId }),
+          body: JSON.stringify({ Email, Password, deviceId, otp }),
         });
         const result = await response.json();
+
+        if (response.ok && result.twoFactorRequired) {
+          setTwoFactorRequired(true);
+          toast.info("Verification code sent to your email.");
+          return;
+        }
+
         if (response.ok && result.userId) {
           toast.success("Login successful!");
           setTimeout(() => {
@@ -225,32 +234,56 @@ export function LoginForm({
               />
             </div>
 
-            {/* Password */}
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="password" className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">
-                Password
-              </label>
-              <div className="relative">
+            {/* OTP Verification (only if 2FA required) */}
+            {twoFactorRequired && (
+              <div className="flex flex-col gap-1.5 animate-in fade-in slide-in-from-top-2 duration-300">
+                <label htmlFor="otp" className="text-[11px] font-bold text-[#CC1318] uppercase tracking-widest flex items-center gap-2">
+                  <Shield size={12} /> Verification Code
+                </label>
                 <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  value={Password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
+                  id="otp"
+                  type="text"
+                  maxLength={6}
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                  placeholder="Enter 6-digit code"
                   required
-                  autoComplete="current-password"
-                  className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3.5 pr-12 text-[14px] text-gray-900 placeholder:text-gray-300 outline-none focus:border-[#CC1318] focus:ring-2 focus:ring-[#CC1318]/10 transition-all"
+                  className="w-full rounded-2xl border-2 border-[#CC1318]/20 bg-white px-4 py-3.5 text-center text-[20px] font-bold tracking-[8px] text-gray-900 placeholder:text-gray-300 placeholder:tracking-normal outline-none focus:border-[#CC1318] focus:ring-4 focus:ring-[#CC1318]/5 transition-all"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 transition-colors"
-                  tabIndex={-1}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
+                <p className="text-[11px] text-gray-400 text-center">
+                  Check your email for the code
+                </p>
               </div>
-            </div>
+            )}
+
+            {/* Password */}
+            {!twoFactorRequired && (
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="password" className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={Password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    required
+                    autoComplete="current-password"
+                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3.5 pr-12 text-[14px] text-gray-900 placeholder:text-gray-300 outline-none focus:border-[#CC1318] focus:ring-2 focus:ring-[#CC1318]/10 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 transition-colors"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Submit button */}
             <button
@@ -266,49 +299,67 @@ export function LoginForm({
               {loading ? (
                 <>
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Signing in...
+                  {twoFactorRequired ? "Verifying..." : "Signing in..."}
                 </>
               ) : (
                 <>
-                  Sign In
+                  {twoFactorRequired ? "Complete Sign In" : "Sign In"}
                   <ArrowRight size={16} />
                 </>
               )}
             </button>
 
-            {/* Biometric login button */}
-            <div className="relative my-2">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-gray-100" />
-              </div>
-              <div className="relative flex justify-center text-[11px] uppercase tracking-widest">
-                <span className="bg-[#F9F6F4] px-3 text-gray-300 font-semibold">Or</span>
-              </div>
-            </div>
+            {/* Back to password option if 2FA is active */}
+            {twoFactorRequired && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTwoFactorRequired(false);
+                  setOtp("");
+                }}
+                className="text-[12px] font-semibold text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                ← Back to Password
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={handleBiometricLogin}
-              disabled={loading || biometricLoading}
-              className={[
-                "w-full rounded-2xl py-4 text-[15px] font-semibold flex items-center justify-center gap-2 transition-all border border-gray-200",
-                loading || biometricLoading
-                  ? "bg-gray-50 text-gray-300 cursor-not-allowed"
-                  : "bg-white text-gray-700 hover:bg-gray-50 active:scale-[0.98] hover:border-gray-300",
-              ].join(" ")}
-            >
-              {biometricLoading ? (
-                <>
-                  <span className="w-4 h-4 border-2 border-gray-200 border-t-[#CC1318] rounded-full animate-spin" />
-                  Verifying...
-                </>
-              ) : (
-                <>
-                  <Fingerprint size={18} className="text-[#CC1318]" />
-                  Login with Fingerprint
-                </>
-              )}
-            </button>
+            {/* Biometric login button */}
+            {!twoFactorRequired && (
+              <>
+                <div className="relative my-2">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-gray-100" />
+                  </div>
+                  <div className="relative flex justify-center text-[11px] uppercase tracking-widest">
+                    <span className="bg-[#F9F6F4] px-3 text-gray-300 font-semibold">Or</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleBiometricLogin}
+                  disabled={loading || biometricLoading}
+                  className={[
+                    "w-full rounded-2xl py-4 text-[15px] font-semibold flex items-center justify-center gap-2 transition-all border border-gray-200",
+                    loading || biometricLoading
+                      ? "bg-gray-50 text-gray-300 cursor-not-allowed"
+                      : "bg-white text-gray-700 hover:bg-gray-50 active:scale-[0.98] hover:border-gray-300",
+                  ].join(" ")}
+                >
+                  {biometricLoading ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-gray-200 border-t-[#CC1318] rounded-full animate-spin" />
+                      Verifying...
+                    </>
+                  ) : (
+                    <>
+                      <Fingerprint size={18} className="text-[#CC1318]" />
+                      Login with Fingerprint
+                    </>
+                  )}
+                </button>
+              </>
+            )}
           </form>
 
           {/* Security note */}

@@ -19,7 +19,8 @@ import {
   MapPin, X, CalendarCheck, ChevronLeft, ChevronRight,
   MapPinCheck, Building2, Home, BarChart3, User,
   LogIn, LogOut, TrendingUp, Plus, FileSpreadsheet, CalendarIcon, Clock,
-  ChevronRight as ArrowRight, Power, Cloud, Sun, CloudRain, CloudLightning, Wind, Info, Fingerprint
+  ChevronRight as ArrowRight, Power, Cloud, Sun, CloudRain, CloudLightning, Wind, Info, Fingerprint,
+  Smartphone, Laptop, Globe, ShieldCheck, Trash2
 } from "lucide-react";
 
 import { useOfflineSync } from "@/hooks/useOfflineSync";
@@ -127,6 +128,7 @@ interface UserDetails {
   profilePicture?: string;
   faceDescriptors?: number[][];
   credentials?: any[];
+  twoFactorEnabled?: boolean;
   TSM: string;
   Directories?: string[];
 }
@@ -668,6 +670,69 @@ function ProfileTab({
   onFaceRegister: () => void;
   onBiometricRegister: () => void;
 }) {
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [twoFactorLoading, setTwoFactorLoading] = useState(false);
+
+  const fetchSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    try {
+      const res = await fetch("/api/auth/sessions");
+      if (res.ok) {
+        const data = await res.json();
+        setSessions(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch sessions", e);
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSessions();
+  }, [fetchSessions]);
+
+  const toggleTwoFactor = async () => {
+    if (!userDetails) return;
+    setTwoFactorLoading(true);
+    const newStatus = !userDetails.twoFactorEnabled;
+    try {
+      const res = await fetch("/api/auth/2fa-toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: newStatus }),
+      });
+      if (res.ok) {
+        toast.success(`2FA ${newStatus ? "enabled" : "disabled"}`);
+        // We might want to refresh userDetails here, but for simplicity we'll just show the toast
+        // and wait for the next render/refresh
+      } else {
+        toast.error("Failed to update 2FA status");
+      }
+    } catch (e) {
+      toast.error("An error occurred");
+    } finally {
+      setTwoFactorLoading(false);
+    }
+  };
+
+  const revokeSession = async (sessionId: string) => {
+    try {
+      const res = await fetch("/api/auth/sessions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+      if (res.ok) {
+        toast.success("Device session revoked");
+        fetchSessions();
+      }
+    } catch (e) {
+      toast.error("Failed to revoke session");
+    }
+  };
+
   const initials = userDetails
     ? `${userDetails.Firstname[0] ?? ""}${userDetails.Lastname[0] ?? ""}`.toUpperCase()
     : "?";
@@ -715,9 +780,27 @@ function ProfileTab({
           ))}
         </div>
 
-        {/* Quick Links */}
+        {/* Security Section */}
         <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Settings & Security</p>
         <div className="flex flex-col gap-3 mb-5">
+          {/* 2FA Toggle */}
+          <div className="w-full flex items-center gap-4 bg-white rounded-2xl border border-gray-100 px-4 py-4 text-left shadow-sm">
+            <div className="w-11 h-11 rounded-[14px] bg-[#EEF7F2] flex items-center justify-center flex-shrink-0">
+              <ShieldCheck size={20} className="text-[#1A7A4A]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-semibold text-gray-800">2-Step Verification</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">Protect account with email OTP</p>
+            </div>
+            <button
+              onClick={toggleTwoFactor}
+              disabled={twoFactorLoading}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${userDetails?.twoFactorEnabled ? 'bg-[#CC1318]' : 'bg-gray-200'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${userDetails?.twoFactorEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+
           <button
             onClick={onFaceRegister}
             className="w-full flex items-center gap-4 bg-white rounded-2xl border border-gray-100 px-4 py-4 text-left hover:border-[#CC1318]/30 hover:bg-[#FFF8F8] active:scale-[0.98] transition-all group shadow-sm"
@@ -751,6 +834,52 @@ function ProfileTab({
           </button>
 
           <TimesheetNavCard userId={userId} />
+        </div>
+
+        {/* Device Sessions */}
+        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Logged Devices</p>
+        <div className="flex flex-col gap-3 mb-5">
+          {sessionsLoading ? (
+            <div className="p-4 text-center text-[12px] text-gray-400">Loading sessions...</div>
+          ) : sessions.length === 0 ? (
+            <div className="p-4 text-center text-[12px] text-gray-400">No active sessions</div>
+          ) : (
+            sessions.map((session) => {
+              const isCurrent = session.token === document.cookie.split('; ').find(row => row.startsWith('session='))?.split('=')[1];
+              return (
+                <div key={session._id} className="w-full flex items-center gap-4 bg-white rounded-2xl border border-gray-100 px-4 py-4 shadow-sm">
+                  <div className={`w-11 h-11 rounded-[14px] flex items-center justify-center flex-shrink-0 ${isCurrent ? 'bg-[#EEF7F2]' : 'bg-gray-50'}`}>
+                    {session.os?.toLowerCase().includes("win") || session.os?.toLowerCase().includes("mac") ? (
+                      <Laptop size={20} className={isCurrent ? 'text-[#1A7A4A]' : 'text-gray-400'} />
+                    ) : (
+                      <Smartphone size={20} className={isCurrent ? 'text-[#1A7A4A]' : 'text-gray-400'} />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-[13px] font-semibold text-gray-800 truncate">{session.device || session.os}</p>
+                      {isCurrent && (
+                        <span className="px-1.5 py-0.5 rounded-md bg-[#EEF7F2] text-[#1A7A4A] text-[9px] font-bold uppercase tracking-wider">This Device</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Globe size={10} className="text-gray-300" />
+                      <p className="text-[11px] text-gray-400 truncate">{session.ip || 'Unknown IP'}</p>
+                    </div>
+                  </div>
+                  {!isCurrent && (
+                    <button
+                      onClick={() => revokeSession(session._id)}
+                      className="w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-[#FEF0F0] hover:text-[#CC1318] transition-all active:scale-95"
+                      title="Kick out device"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
+              );
+            })
+          )}
         </div>
 
         {/* ── Logout ── */}
@@ -834,6 +963,7 @@ function ActivityPage() {
           Company: data.Company ?? "", ReferenceID: data.ReferenceID ?? "",
           profilePicture: data.profilePicture ?? "", faceDescriptors: data.faceDescriptors ?? null,
           credentials: data.credentials ?? [],
+          twoFactorEnabled: data.twoFactorEnabled ?? false,
           TSM: data.TSM ?? "",
           Directories: data.Directories ?? [],
         });

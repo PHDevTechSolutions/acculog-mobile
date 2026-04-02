@@ -1,8 +1,22 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import { serialize, parse } from "cookie";
+import { connectToDatabase } from "./MongoDB";
 
 // Function to destroy session
 export async function destroySession(req: NextApiRequest, res: NextApiResponse) {
+  const cookies = req.headers.cookie ? parse(req.headers.cookie) : {};
+  const sessionToken = cookies.session;
+
+  if (sessionToken) {
+    try {
+      const db = await connectToDatabase();
+      const sessionsCollection = db.collection("sessions");
+      await sessionsCollection.deleteOne({ token: sessionToken });
+    } catch (e) {
+      console.error("Failed to delete session from DB", e);
+    }
+  }
+
   res.setHeader("Set-Cookie", serialize("session", "", { maxAge: -1, path: "/" }));
 }
 
